@@ -1,0 +1,16 @@
+node_modules/
+.env
+.env.local
+.env.*.local
+dist/
+build/
+*.log
+.DS_Store
+uploads/
+.vscode/
+.idea/
+.git/
+package-lock.json
+yarn.lock
+.eslintcache
+*.env.test
