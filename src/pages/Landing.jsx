@@ -67,7 +67,7 @@ export default function Landing() {
           {/* Desktop Auth */}
           <div className="hidden md:flex items-center gap-3">
             <button
-              onClick={() => navigate('/auth')}
+              onClick={() => navigate('/auth', { state: { login: true } })}
               className="px-5 py-2 border-2 border-[#1E3A8A] text-[#1E3A8A] rounded-lg text-sm font-medium hover:bg-[#EFF6FF] transition-colors"
             >
               Entrar
@@ -101,7 +101,7 @@ export default function Landing() {
             ))}
             <div className="flex gap-3 pt-2">
               <button
-                onClick={() => navigate('/auth')}
+                onClick={() => navigate('/auth', { state: { login: true } })}
                 className="flex-1 py-2 border-2 border-[#1E3A8A] text-[#1E3A8A] rounded-lg text-sm font-medium"
               >
                 Entrar

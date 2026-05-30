@@ -168,9 +168,9 @@ export default function StudentHome() {
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
                 placeholder={searchTab === 'mentor' ? 'Nome do mentor, especialidade...' : 'Nome do procedimento...'}
-                className="flex-1 px-4 py-3 rounded-xl border border-[#E2E8F0] text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]/30 focus:border-[#1E3A8A]"
+                className="w-full sm:flex-1 px-4 py-3 rounded-xl border border-[#E2E8F0] text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]/30 focus:border-[#1E3A8A]"
               />
-              <button className="px-5 py-3 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl text-sm font-semibold whitespace-nowrap">
+              <button className="hidden sm:block px-5 py-3 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl text-sm font-semibold whitespace-nowrap">
                 Buscar
               </button>
             </div>
@@ -194,6 +194,10 @@ export default function StudentHome() {
                 </select>
               ))}
             </div>
+
+            <button className="sm:hidden w-full mt-3 py-3 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl text-sm font-semibold">
+              Buscar
+            </button>
           </div>
         </div>
       </section>

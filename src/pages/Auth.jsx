@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 
 const Logo = () => (
   <div className="flex items-center gap-2">
@@ -23,7 +23,8 @@ const GoogleIcon = () => (
 
 export default function Auth() {
   const navigate = useNavigate()
-  const [isLogin, setIsLogin] = useState(false)
+  const { state } = useLocation()
+  const [isLogin, setIsLogin] = useState(state?.login ?? false)
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' })
   const [agreed, setAgreed] = useState(false)
   const [showForgot, setShowForgot] = useState(false)
