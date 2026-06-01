@@ -33,9 +33,10 @@ There are no tests and no linter configured.
 All data is defined as constants at the top of each page component — there is no shared state, context, or store. `MentorProfile` always renders a single hardcoded mentor (`Dr. Carlos Silva`); the `:id` param is captured by the router but not used.
 
 ### Design system
-Brand colors are hardcoded hex values (`#1E3A8A`, `#2563EB`, `#0F172A`) rather than Tailwind config aliases. The `Logo` component is duplicated across pages with slight variants (dark/white mode). Avatar placeholders use initials + gradient backgrounds throughout.
+Brand colors are hardcoded hex values (`#1E3A8A`, `#2563EB`, `#0F172A`) rather than Tailwind config aliases. The `Logo` component (SVG + wordmark) is defined inline in every page file rather than as a shared component, with slight variants (dark vs. white mode). Avatar placeholders use initials + gradient backgrounds throughout.
 
 ### Key interaction patterns
+- `Landing` navigates to `/auth` with `{ state: { login: true } }` for the "Entrar" button and plain `navigate('/auth')` for "Cadastrar". `Auth` reads `location.state?.login` to set the initial tab.
 - Auth forms do nothing except `navigate('/home')` on submit — no validation beyond HTML `required`
-- `MentorProfile` booking flow: select procedure → select date → `handleRequest()` sets `requested=true`, shows success state, then `setTimeout` navigates back to `/home`
-- `StudentHome` search/filter state is local (`useState`) and filters only the procedures list (mentor cards are unfiltered)
+- `StudentHome` search/filter state is local (`useState`). Only `procCategory` actually filters anything — the `searchQuery` text field and the four `filters` dropdowns are captured in state but never applied to rendered output; mentor cards are always unfiltered.
+- `MentorProfile` booking flow: select procedure → select date → `handleRequest()` sets `requested=true`, shows success state, then `setTimeout` navigates back to `/home`. The "Disponibilidade" tab calendar and the sidebar date grid are separate UIs but share the same `selectedDate` state.

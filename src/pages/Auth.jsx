@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 
 const Logo = () => (
   <div className="flex items-center gap-2">
@@ -24,22 +25,78 @@ const GoogleIcon = () => (
 export default function Auth() {
   const navigate = useNavigate()
   const { state } = useLocation()
+  const { user, profile, loading, signIn, signUp, signInWithGoogle, resetPassword } = useAuth()
+
   const [isLogin, setIsLogin] = useState(state?.login ?? false)
-  const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' })
+  const [form, setForm] = useState({ email: '', password: '', confirm: '' })
   const [agreed, setAgreed] = useState(false)
   const [showForgot, setShowForgot] = useState(false)
   const [forgotEmail, setForgotEmail] = useState('')
   const [forgotSent, setForgotSent] = useState(false)
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
 
-  const handleSubmit = (e) => {
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (!loading && user) {
+      navigate(profile ? '/home' : '/onboarding', { replace: true })
+    }
+  }, [loading, user, profile, navigate])
+
+  function clearError() { setError('') }
+
+  async function handleSubmit(e) {
     e.preventDefault()
-    navigate('/home')
+    setError('')
+    setSubmitting(true)
+
+    if (isLogin) {
+      const { error } = await signIn(form.email, form.password)
+      if (error) setError(friendlyError(error.message))
+    } else {
+      if (form.password !== form.confirm) {
+        setError('As senhas não coincidem.')
+        setSubmitting(false)
+        return
+      }
+      const { data, error } = await signUp(form.email, form.password)
+      if (error) {
+        setError(friendlyError(error.message))
+      } else if (!data.session) {
+        // Email confirmation required
+        setEmailSent(true)
+      }
+      // If data.session exists, the useEffect above will handle redirect
+    }
+    setSubmitting(false)
   }
 
-  const handleForgot = (e) => {
-    e.preventDefault()
-    setForgotSent(true)
+  async function handleGoogle() {
+    setError('')
+    const { error } = await signInWithGoogle()
+    if (error) setError(friendlyError(error.message))
   }
+
+  async function handleForgot(e) {
+    e.preventDefault()
+    setError('')
+    setSubmitting(true)
+    const { error } = await resetPassword(forgotEmail)
+    if (error) setError(friendlyError(error.message))
+    else setForgotSent(true)
+    setSubmitting(false)
+  }
+
+  function friendlyError(msg) {
+    if (msg.includes('Invalid login credentials')) return 'E-mail ou senha incorretos.'
+    if (msg.includes('Email not confirmed')) return 'Confirme seu e-mail antes de entrar.'
+    if (msg.includes('User already registered')) return 'Este e-mail já está cadastrado.'
+    if (msg.includes('Password should be')) return 'A senha deve ter pelo menos 6 caracteres.'
+    return msg
+  }
+
+  if (loading) return null
 
   return (
     <div className="min-h-screen flex">
@@ -58,7 +115,6 @@ export default function Auth() {
             <p className="text-blue-300 text-sm">Cirurgiã Cardiovascular</p>
           </div>
         </div>
-
         <div className="grid grid-cols-3 gap-4">
           {[['500+', 'Médicos Especialistas'], ['1.200+', 'Mentorias Realizadas'], ['50+', 'Especialidades']].map(([num, label]) => (
             <div key={label} className="bg-white/10 rounded-xl p-4 text-center">
@@ -87,13 +143,13 @@ export default function Auth() {
           {/* Tabs */}
           <div className="flex bg-[#F1F5F9] rounded-xl p-1 mb-8">
             <button
-              onClick={() => { setIsLogin(false); setShowForgot(false) }}
+              onClick={() => { setIsLogin(false); setShowForgot(false); clearError(); setEmailSent(false) }}
               className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${!isLogin ? 'bg-white text-[#1E3A8A] shadow-sm' : 'text-[#64748B] hover:text-[#1E3A8A]'}`}
             >
               Cadastrar
             </button>
             <button
-              onClick={() => { setIsLogin(true); setShowForgot(false) }}
+              onClick={() => { setIsLogin(true); setShowForgot(false); clearError(); setEmailSent(false) }}
               className={`flex-1 py-2.5 rounded-lg text-sm font-medium transition-all ${isLogin ? 'bg-white text-[#1E3A8A] shadow-sm' : 'text-[#64748B] hover:text-[#1E3A8A]'}`}
             >
               Entrar
@@ -101,20 +157,22 @@ export default function Auth() {
           </div>
 
           {showForgot ? (
-            /* Forgot Password */
             <div>
               <button
-                onClick={() => { setShowForgot(false); setForgotSent(false) }}
+                onClick={() => { setShowForgot(false); setForgotSent(false); clearError() }}
                 className="flex items-center gap-1 text-[#64748B] text-sm mb-6 hover:text-[#1E3A8A]"
               >
                 ← Voltar
               </button>
               <h2 className="text-2xl font-bold text-[#0F172A] mb-1">Recuperar Senha</h2>
               <p className="text-[#64748B] text-sm mb-6">Enviaremos um link de redefinição para o seu e-mail.</p>
+
+              {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">{error}</div>}
+
               {forgotSent ? (
                 <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
                   <p className="text-green-700 font-medium">✓ E-mail enviado!</p>
-                  <p className="text-green-600 text-sm mt-1">Verifique sua caixa de entrada.</p>
+                  <p className="text-green-600 text-sm mt-1">Verifique sua caixa de entrada e clique no link para redefinir sua senha.</p>
                 </div>
               ) : (
                 <form onSubmit={handleForgot} className="space-y-4">
@@ -131,18 +189,21 @@ export default function Auth() {
                   </div>
                   <button
                     type="submit"
-                    className="w-full py-3 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl font-semibold hover:opacity-90 transition-opacity"
+                    disabled={submitting}
+                    className="w-full py-3 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl font-semibold hover:opacity-90 transition-opacity disabled:opacity-50"
                   >
-                    Enviar Link
+                    {submitting ? 'Enviando...' : 'Enviar Link'}
                   </button>
                 </form>
               )}
             </div>
           ) : isLogin ? (
-            /* Login Form */
             <div>
               <h2 className="text-2xl font-bold text-[#0F172A] mb-1">Bem-vindo de volta</h2>
               <p className="text-[#64748B] text-sm mb-6">Entre com suas credenciais para continuar.</p>
+
+              {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">{error}</div>}
+
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-[#374151] mb-1.5">E-mail</label>
@@ -158,7 +219,7 @@ export default function Auth() {
                 <div>
                   <div className="flex justify-between mb-1.5">
                     <label className="text-sm font-medium text-[#374151]">Senha</label>
-                    <button type="button" onClick={() => setShowForgot(true)} className="text-xs text-[#2563EB] hover:underline">
+                    <button type="button" onClick={() => { setShowForgot(true); clearError() }} className="text-xs text-[#2563EB] hover:underline">
                       Esqueci minha senha
                     </button>
                   </div>
@@ -173,9 +234,10 @@ export default function Auth() {
                 </div>
                 <button
                   type="submit"
-                  className="w-full py-3 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl font-semibold shadow hover:opacity-90 transition-opacity"
+                  disabled={submitting}
+                  className="w-full py-3 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl font-semibold shadow hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
-                  Entrar
+                  {submitting ? 'Entrando...' : 'Entrar'}
                 </button>
               </form>
 
@@ -186,7 +248,7 @@ export default function Auth() {
               </div>
 
               <button
-                onClick={() => navigate('/home')}
+                onClick={handleGoogle}
                 className="w-full py-3 border border-[#E2E8F0] rounded-xl flex items-center justify-center gap-3 hover:bg-[#F8FAFC] transition-colors text-sm font-medium text-[#374151]"
               >
                 <GoogleIcon />
@@ -195,28 +257,31 @@ export default function Auth() {
 
               <p className="text-center text-sm text-[#64748B] mt-5">
                 Não tem conta?{' '}
-                <button onClick={() => setIsLogin(false)} className="text-[#2563EB] font-medium hover:underline">
+                <button onClick={() => { setIsLogin(false); clearError() }} className="text-[#2563EB] font-medium hover:underline">
                   Cadastrar
                 </button>
               </p>
             </div>
+          ) : emailSent ? (
+            <div className="text-center py-4">
+              <div className="w-16 h-16 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-[#1E3A8A]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <h2 className="text-xl font-bold text-[#0F172A] mb-2">Confirme seu e-mail</h2>
+              <p className="text-[#64748B] text-sm mb-2">Enviamos um link de confirmação para</p>
+              <p className="font-semibold text-[#1E293B] mb-4">{form.email}</p>
+              <p className="text-[#64748B] text-sm">Clique no link do e-mail para ativar sua conta e completar o cadastro.</p>
+            </div>
           ) : (
-            /* Register Form */
             <div>
               <h2 className="text-2xl font-bold text-[#0F172A] mb-1">Criar Nova Conta</h2>
               <p className="text-[#64748B] text-sm mb-6">Preencha seus dados para começar.</p>
+
+              {error && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">{error}</div>}
+
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-[#374151] mb-1.5">Nome Completo</label>
-                  <input
-                    type="text"
-                    required
-                    value={form.name}
-                    onChange={e => setForm({ ...form, name: e.target.value })}
-                    placeholder="Dr. João Silva"
-                    className="w-full px-4 py-3 rounded-xl border border-[#E2E8F0] focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]/30 focus:border-[#1E3A8A] text-sm"
-                  />
-                </div>
                 <div>
                   <label className="block text-sm font-medium text-[#374151] mb-1.5">E-mail</label>
                   <input
@@ -233,6 +298,7 @@ export default function Auth() {
                   <input
                     type="password"
                     required
+                    minLength={6}
                     value={form.password}
                     onChange={e => setForm({ ...form, password: e.target.value })}
                     placeholder="••••••••"
@@ -244,6 +310,7 @@ export default function Auth() {
                   <input
                     type="password"
                     required
+                    minLength={6}
                     value={form.confirm}
                     onChange={e => setForm({ ...form, confirm: e.target.value })}
                     placeholder="••••••••"
@@ -267,9 +334,10 @@ export default function Auth() {
                 </label>
                 <button
                   type="submit"
-                  className="w-full py-3 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl font-semibold shadow hover:opacity-90 transition-opacity"
+                  disabled={submitting}
+                  className="w-full py-3 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl font-semibold shadow hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
-                  Criar Conta
+                  {submitting ? 'Criando conta...' : 'Criar Conta'}
                 </button>
               </form>
 
@@ -280,7 +348,7 @@ export default function Auth() {
               </div>
 
               <button
-                onClick={() => navigate('/home')}
+                onClick={handleGoogle}
                 className="w-full py-3 border border-[#E2E8F0] rounded-xl flex items-center justify-center gap-3 hover:bg-[#F8FAFC] transition-colors text-sm font-medium text-[#374151]"
               >
                 <GoogleIcon />
@@ -289,7 +357,7 @@ export default function Auth() {
 
               <p className="text-center text-sm text-[#64748B] mt-5">
                 Já tem uma conta?{' '}
-                <button onClick={() => setIsLogin(true)} className="text-[#2563EB] font-medium hover:underline">
+                <button onClick={() => { setIsLogin(true); clearError() }} className="text-[#2563EB] font-medium hover:underline">
                   Entrar
                 </button>
               </p>
