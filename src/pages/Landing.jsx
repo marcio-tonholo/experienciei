@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
 
 const Logo = ({ white }) => (
   <div className="flex items-center gap-2">
@@ -46,7 +47,11 @@ const testimonials = [
 
 export default function Landing() {
   const navigate = useNavigate()
+  const { user, profile } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
+
+  const initials = profile?.nome?.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() || '?'
+  const firstName = profile?.nome?.split(' ')[0] || 'Você'
 
   return (
     <div className="min-h-screen bg-white">
@@ -66,18 +71,37 @@ export default function Landing() {
 
           {/* Desktop Auth */}
           <div className="hidden md:flex items-center gap-3">
-            <button
-              onClick={() => navigate('/auth', { state: { login: true } })}
-              className="px-5 py-2 border-2 border-[#1E3A8A] text-[#1E3A8A] rounded-lg text-sm font-medium hover:bg-[#EFF6FF] transition-colors"
-            >
-              Entrar
-            </button>
-            <button
-              onClick={() => navigate('/auth')}
-              className="px-5 py-2 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-lg text-sm font-medium shadow hover:opacity-90 transition-opacity"
-            >
-              Cadastrar
-            </button>
+            {user ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#1E3A8A] to-[#2563EB] flex items-center justify-center text-white text-xs font-bold">
+                    {initials}
+                  </div>
+                  <span className="text-sm font-medium text-[#374151]">Olá, {firstName}</span>
+                </div>
+                <button
+                  onClick={() => navigate('/home')}
+                  className="px-5 py-2 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-lg text-sm font-medium shadow hover:opacity-90 transition-opacity"
+                >
+                  Acessar plataforma →
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => navigate('/auth', { state: { login: true } })}
+                  className="px-5 py-2 border-2 border-[#1E3A8A] text-[#1E3A8A] rounded-lg text-sm font-medium hover:bg-[#EFF6FF] transition-colors"
+                >
+                  Entrar
+                </button>
+                <button
+                  onClick={() => navigate('/auth')}
+                  className="px-5 py-2 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-lg text-sm font-medium shadow hover:opacity-90 transition-opacity"
+                >
+                  Cadastrar
+                </button>
+              </>
+            )}
           </div>
 
           {/* Mobile Hamburger */}
@@ -99,20 +123,29 @@ export default function Landing() {
                 {item}
               </a>
             ))}
-            <div className="flex gap-3 pt-2">
+            {user ? (
               <button
-                onClick={() => navigate('/auth', { state: { login: true } })}
-                className="flex-1 py-2 border-2 border-[#1E3A8A] text-[#1E3A8A] rounded-lg text-sm font-medium"
+                onClick={() => navigate('/home')}
+                className="w-full py-2.5 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-lg text-sm font-medium"
               >
-                Entrar
+                Acessar plataforma →
               </button>
-              <button
-                onClick={() => navigate('/auth')}
-                className="flex-1 py-2 bg-[#1E3A8A] text-white rounded-lg text-sm font-medium"
-              >
-                Cadastrar
-              </button>
-            </div>
+            ) : (
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => navigate('/auth', { state: { login: true } })}
+                  className="flex-1 py-2 border-2 border-[#1E3A8A] text-[#1E3A8A] rounded-lg text-sm font-medium"
+                >
+                  Entrar
+                </button>
+                <button
+                  onClick={() => navigate('/auth')}
+                  className="flex-1 py-2 bg-[#1E3A8A] text-white rounded-lg text-sm font-medium"
+                >
+                  Cadastrar
+                </button>
+              </div>
+            )}
           </div>
         )}
       </header>

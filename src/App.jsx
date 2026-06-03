@@ -6,6 +6,7 @@ import AuthCallback from './pages/AuthCallback'
 import ResetPassword from './pages/ResetPassword'
 import Onboarding from './pages/Onboarding'
 import StudentHome from './pages/StudentHome'
+import MentorHome from './pages/MentorHome'
 import MentorProfile from './pages/MentorProfile'
 
 function ProtectedRoute({ children }) {
@@ -15,7 +16,7 @@ function ProtectedRoute({ children }) {
       <div className="w-10 h-10 rounded-full border-4 border-[#1E3A8A] border-t-transparent animate-spin" />
     </div>
   )
-  if (!user) return <Navigate to="/auth" replace />
+  if (!user) return <Navigate to="/" replace />
   if (!profile) return <Navigate to="/onboarding" replace />
   return children
 }
@@ -27,9 +28,14 @@ function OnboardingRoute({ children }) {
       <div className="w-10 h-10 rounded-full border-4 border-[#1E3A8A] border-t-transparent animate-spin" />
     </div>
   )
-  if (!user) return <Navigate to="/auth" replace />
+  if (!user) return <Navigate to="/" replace />
   if (profile) return <Navigate to="/home" replace />
   return children
+}
+
+function HomeRouter() {
+  const { profile } = useAuth()
+  return profile?.papel === 'mentor' ? <MentorHome /> : <StudentHome />
 }
 
 function AppRoutes() {
@@ -40,7 +46,7 @@ function AppRoutes() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/auth/reset-password" element={<ResetPassword />} />
       <Route path="/onboarding" element={<OnboardingRoute><Onboarding /></OnboardingRoute>} />
-      <Route path="/home" element={<ProtectedRoute><StudentHome /></ProtectedRoute>} />
+      <Route path="/home" element={<ProtectedRoute><HomeRouter /></ProtectedRoute>} />
       <Route path="/mentor/:id" element={<ProtectedRoute><MentorProfile /></ProtectedRoute>} />
     </Routes>
   )

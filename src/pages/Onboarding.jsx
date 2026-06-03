@@ -4,6 +4,18 @@ import { useAuth } from '../contexts/AuthContext'
 
 const UF_LIST = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO']
 
+function formatCRM(raw) {
+  const clean = raw.toUpperCase().replace(/[^0-9A-Z]/g, '')
+  const digits = clean.match(/^\d*/)[0].slice(0, 6)
+  const letters = clean.slice(digits.length).replace(/[^A-Z]/g, '').slice(0, 2)
+  if (letters) return `${digits}-${letters}`
+  return digits
+}
+
+function isValidCRM(value) {
+  return /^\d{4,6}-[A-Z]{2}$/.test(value)
+}
+
 const AMBIENTES_OPTIONS = [
   'Hospital Público',
   'Hospital Privado',
@@ -93,7 +105,7 @@ export default function Onboarding() {
   const [papel, setPapel] = useState('')
   const [common, setCommon] = useState({ nome: '', categoria: '', cidade: '' })
   const [mentorData, setMentorData] = useState({
-    crm: '', uf: '', especialidade: '', subespecialidades: [],
+    crm: '', especialidade: '', subespecialidades: [],
     anos_experiencia: '', mini_curriculo: '', ambientes: [],
   })
   const [studentData, setStudentData] = useState({
@@ -122,13 +134,16 @@ export default function Onboarding() {
   }
 
   function canAdvanceStep2() {
-    return common.nome.trim() && common.categoria && common.cidade.trim()
+    return common.nome.trim() && common.cidade.trim()
   }
 
   function canAdvanceStep3() {
     if (papel === 'mentor') {
-      return mentorData.crm.trim() && mentorData.uf && mentorData.especialidade.trim() &&
+      return isValidCRM(mentorData.crm) && mentorData.especialidade.trim() &&
         mentorData.anos_experiencia && mentorData.mini_curriculo.trim() && mentorData.ambientes.length > 0
+    }
+    if (studentData.nivel === 'residente' || studentData.nivel === 'especialista') {
+      return studentData.nivel && isValidCRM(studentData.crm)
     }
     return studentData.nivel
   }
@@ -140,8 +155,13 @@ export default function Onboarding() {
     setError('')
 
     const mentorPayload = papel === 'mentor' ? {
-      ...mentorData,
+      crm: mentorData.crm.split('-')[0],
+      uf: (mentorData.crm.split('-')[1] ?? '').toUpperCase(),
+      especialidade: mentorData.especialidade,
+      subespecialidades: mentorData.subespecialidades,
       anos_experiencia: parseInt(mentorData.anos_experiencia, 10),
+      mini_curriculo: mentorData.mini_curriculo,
+      ambientes: mentorData.ambientes,
     } : null
 
     const studentPayload = papel === 'aluno' ? {
@@ -152,7 +172,7 @@ export default function Onboarding() {
 
     const { error } = await createProfile({
       papel,
-      categoria: papel === 'mentor' ? 'medico' : common.categoria,
+      categoria: papel === 'mentor' ? 'medico' : (studentData.nivel === 'estudante' ? 'estudante' : 'medico'),
       nome: common.nome,
       cidade: common.cidade,
       mentorData: mentorPayload,
@@ -258,31 +278,6 @@ export default function Onboarding() {
                   />
                 </div>
 
-                {papel === 'aluno' && (
-                  <div>
-                    <label className="block text-sm font-medium text-[#374151] mb-1.5">Você é...</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      {[
-                        { value: 'estudante', label: 'Estudante de Medicina' },
-                        { value: 'medico', label: 'Médico Formado' },
-                      ].map(opt => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => handleCommon('categoria', opt.value)}
-                          className={`py-3 px-4 rounded-xl border-2 text-sm font-medium transition-all ${
-                            common.categoria === opt.value
-                              ? 'border-[#1E3A8A] bg-[#EFF6FF] text-[#1E3A8A]'
-                              : 'border-[#E2E8F0] text-[#374151] hover:border-[#93C5FD]'
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
                 <div>
                   <label className="block text-sm font-medium text-[#374151] mb-1.5">Cidade</label>
                   <input
@@ -335,30 +330,16 @@ export default function Onboarding() {
 
               {papel === 'mentor' ? (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="col-span-2">
-                      <label className="block text-sm font-medium text-[#374151] mb-1.5">CRM</label>
-                      <input
-                        type="text"
-                        required
-                        value={mentorData.crm}
-                        onChange={e => handleMentor('crm', e.target.value)}
-                        placeholder="123456"
-                        className="w-full px-4 py-3 rounded-xl border border-[#E2E8F0] focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]/30 focus:border-[#1E3A8A] text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-[#374151] mb-1.5">UF</label>
-                      <select
-                        required
-                        value={mentorData.uf}
-                        onChange={e => handleMentor('uf', e.target.value)}
-                        className="w-full px-3 py-3 rounded-xl border border-[#E2E8F0] focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]/30 focus:border-[#1E3A8A] text-sm bg-white text-[#374151]"
-                      >
-                        <option value="">UF</option>
-                        {UF_LIST.map(uf => <option key={uf} value={uf}>{uf}</option>)}
-                      </select>
-                    </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#374151] mb-1.5">CRM</label>
+                    <input
+                      type="text"
+                      required
+                      value={mentorData.crm}
+                      onChange={e => handleMentor('crm', formatCRM(e.target.value))}
+                      placeholder="123456-SP"
+                      className="w-full px-4 py-3 rounded-xl border border-[#E2E8F0] focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]/30 focus:border-[#1E3A8A] text-sm"
+                    />
                   </div>
 
                   <div>
@@ -460,16 +441,15 @@ export default function Onboarding() {
                     </div>
                   </div>
 
-                  {(studentData.nivel === 'residente' || studentData.nivel === 'especialista' || common.categoria === 'medico') && (
+                  {(studentData.nivel === 'residente' || studentData.nivel === 'especialista') && (
                     <div>
-                      <label className="block text-sm font-medium text-[#374151] mb-1.5">
-                        CRM <span className="text-[#94A3B8] font-normal">(opcional)</span>
-                      </label>
+                      <label className="block text-sm font-medium text-[#374151] mb-1.5">CRM</label>
                       <input
                         type="text"
+                        required
                         value={studentData.crm}
-                        onChange={e => handleStudent('crm', e.target.value)}
-                        placeholder="123456"
+                        onChange={e => handleStudent('crm', formatCRM(e.target.value))}
+                        placeholder="123456-SP"
                         className="w-full px-4 py-3 rounded-xl border border-[#E2E8F0] focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]/30 focus:border-[#1E3A8A] text-sm"
                       />
                     </div>
