@@ -8,6 +8,8 @@ import Onboarding from './pages/Onboarding'
 import StudentHome from './pages/StudentHome'
 import MentorHome from './pages/MentorHome'
 import MentorProfile from './pages/MentorProfile'
+import OfferingDetail from './pages/OfferingDetail'
+import Explorar from './pages/Explorar'
 
 function ProtectedRoute({ children }) {
   const { user, profile, loading } = useAuth()
@@ -46,8 +48,10 @@ function AppRoutes() {
       <Route path="/auth/callback" element={<AuthCallback />} />
       <Route path="/auth/reset-password" element={<ResetPassword />} />
       <Route path="/onboarding" element={<OnboardingRoute><Onboarding /></OnboardingRoute>} />
+      <Route path="/explorar" element={<Explorar />} />
       <Route path="/home" element={<ProtectedRoute><HomeRouter /></ProtectedRoute>} />
       <Route path="/mentor/:id" element={<ProtectedRoute><MentorProfile /></ProtectedRoute>} />
+      <Route path="/offering/:id" element={<OfferingDetail />} />
     </Routes>
   )
 }
