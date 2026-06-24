@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import DocumentsTab from '../components/DocumentsTab';
+import NotificationsTab from '../components/NotificationsTab';
+import LocationPicker from '../components/LocationPicker';
 
 // ─── Static data (sessions + production — hardcoded until bookings land) ──────
 
@@ -161,10 +163,11 @@ function StudentAvatar({ name }) {
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'agenda', label: 'Agenda', icon: '📅' },
-  { id: 'sessoes', label: 'Sessões', icon: '🏥' },
-  { id: 'perfil', label: 'Perfil', icon: '👤' },
-  { id: 'docs', label: 'Documentos', icon: '📄' },
+  { id: 'agenda',        label: 'Agenda',        icon: '📅' },
+  { id: 'sessoes',       label: 'Sessões',        icon: '🏥' },
+  { id: 'notificacoes',  label: 'Notificações',   icon: '🔔' },
+  { id: 'perfil',        label: 'Perfil',         icon: '👤' },
+  { id: 'docs',          label: 'Documentos',     icon: '📄' },
 ];
 
 // ─── EncerrarModal ───────────────────────────────────────────────────────────
@@ -313,7 +316,8 @@ const EMPTY_FORM = {
   max_vagas: 1,
   preco: '',
   cidade: '',
-  local_descricao: '',
+  latitude: null,
+  longitude: null,
 };
 
 function CreateOfferingModal({ mentorId, onClose, onCreated }) {
@@ -359,7 +363,8 @@ function CreateOfferingModal({ mentorId, onClose, onCreated }) {
       return setError('O fim deve ser após o início.');
     if (form.preco === '' || Number(form.preco) < 0)
       return setError('Informe o valor.');
-    if (!form.cidade.trim()) return setError('Informe a cidade.');
+    if (form.latitude == null || form.longitude == null)
+      return setError('Defina a localização no mapa.');
 
     setSaving(true);
     const { error: err } = await supabase.from('offerings').insert({
@@ -371,8 +376,9 @@ function CreateOfferingModal({ mentorId, onClose, onCreated }) {
       preco: Number(form.preco),
       inicio: new Date(form.inicio).toISOString(),
       fim: new Date(form.fim).toISOString(),
-      cidade: form.cidade.trim(),
-      local_descricao: form.local_descricao.trim() || null,
+      cidade: form.cidade.trim() || 'Brasil',
+      latitude: form.latitude,
+      longitude: form.longitude,
       status,
     });
     setSaving(false);
@@ -510,27 +516,16 @@ function CreateOfferingModal({ mentorId, onClose, onCreated }) {
 
           <div>
             <label className="text-xs font-semibold text-[#374151] block mb-1.5">
-              Cidade <span className="text-red-500">*</span>
+              Localização <span className="text-red-500">*</span>
             </label>
-            <input
-              type="text"
-              value={form.cidade}
-              onChange={(e) => set('cidade', e.target.value)}
-              placeholder="São Paulo, SP"
-              className={input}
-            />
-          </div>
-
-          <div>
-            <label className="text-xs font-semibold text-[#374151] block mb-1.5">
-              Local / Hospital
-            </label>
-            <input
-              type="text"
-              value={form.local_descricao}
-              onChange={(e) => set('local_descricao', e.target.value)}
-              placeholder="Hospital das Clínicas — CC 3, Mesa 2"
-              className={input}
+            <p className="text-xs text-[#64748B] mb-2">
+              Apenas a área aproximada (raio de 500 m) será exibida aos alunos. A cidade é detectada automaticamente.
+            </p>
+            <LocationPicker
+              lat={form.latitude}
+              lng={form.longitude}
+              onChange={(lat, lng) => setForm(f => ({ ...f, latitude: lat, longitude: lng }))}
+              onCityResolved={(cidade) => setForm(f => ({ ...f, cidade }))}
             />
           </div>
 
@@ -555,6 +550,158 @@ function CreateOfferingModal({ mentorId, onClose, onCreated }) {
             className="flex-[2] py-2.5 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
             {saving ? 'Publicando...' : '🚀 Publicar Mentoria'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── EditOfferingModal ────────────────────────────────────────────────────────
+
+function toDatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const off = d.getTimezoneOffset() * 60000;
+  return new Date(d - off).toISOString().slice(0, 16);
+}
+
+function EditOfferingModal({ offering, onClose, onSaved }) {
+  const [procedures, setProcedures] = useState([]);
+  const [form, setForm] = useState({
+    procedure_id: offering.procedure_id || '',
+    titulo:       offering.titulo || '',
+    descricao:    offering.descricao || '',
+    inicio:       toDatetimeLocal(offering.inicio),
+    fim:          toDatetimeLocal(offering.fim),
+    max_vagas:    offering.max_vagas ?? 1,
+    preco:        offering.preco ?? '',
+    cidade:       offering.cidade || '',
+    latitude:     offering.latitude ?? null,
+    longitude:    offering.longitude ?? null,
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    supabase.from('procedures').select('*').order('especialidade').order('nome')
+      .then(({ data }) => { if (data) setProcedures(data); });
+  }, []);
+
+  function set(field, value) { setForm((f) => ({ ...f, [field]: value })); }
+
+  async function submit() {
+    setError('');
+    if (!form.titulo.trim()) return setError('Informe um título.');
+    if (!form.inicio)        return setError('Informe data/hora de início.');
+    if (!form.fim)           return setError('Informe data/hora de fim.');
+    if (new Date(form.inicio) >= new Date(form.fim)) return setError('O fim deve ser após o início.');
+    if (form.preco === '' || Number(form.preco) < 0) return setError('Informe o valor.');
+    if (form.latitude == null || form.longitude == null) return setError('Defina a localização no mapa.');
+
+    setSaving(true);
+    const { error: err } = await supabase.from('offerings').update({
+      procedure_id: form.procedure_id || null,
+      titulo:       form.titulo.trim(),
+      descricao:    form.descricao.trim() || null,
+      max_vagas:    Number(form.max_vagas),
+      preco:        Number(form.preco),
+      inicio:       new Date(form.inicio).toISOString(),
+      fim:          new Date(form.fim).toISOString(),
+      cidade:       form.cidade.trim() || 'Brasil',
+      latitude:     form.latitude,
+      longitude:    form.longitude,
+    }).eq('id', offering.id);
+    setSaving(false);
+    if (err) return setError(err.message);
+    onSaved();
+  }
+
+  const grouped = procedures.reduce((acc, p) => {
+    (acc[p.especialidade] ??= []).push(p);
+    return acc;
+  }, {});
+
+  const input = 'w-full border border-[#E2E8F0] rounded-xl px-3 py-2.5 text-sm text-[#0F172A] bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30 focus:border-[#2563EB]';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full sm:max-w-lg bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl max-h-[92vh] flex flex-col">
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-[#E2E8F0]">
+          <h2 className="text-lg font-bold text-[#0F172A]">Editar Mentoria</h2>
+          <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-[#F1F5F9] flex items-center justify-center text-[#64748B] text-lg leading-none">✕</button>
+        </div>
+
+        <div className="overflow-y-auto px-5 py-5 space-y-4 flex-1">
+          <div>
+            <label className="text-xs font-semibold text-[#374151] block mb-1.5">Procedimento</label>
+            <select value={form.procedure_id} onChange={(e) => set('procedure_id', e.target.value)} className={input}>
+              <option value="">Selecione ou deixe em branco</option>
+              {Object.entries(grouped).map(([esp, procs]) => (
+                <optgroup key={esp} label={esp}>
+                  {procs.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-[#374151] block mb-1.5">Título <span className="text-red-500">*</span></label>
+            <input type="text" value={form.titulo} onChange={(e) => set('titulo', e.target.value)} className={input} />
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-[#374151] block mb-1.5">Descrição</label>
+            <textarea value={form.descricao} onChange={(e) => set('descricao', e.target.value)} rows={3} className={`${input} resize-none`} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-[#374151] block mb-1.5">Início <span className="text-red-500">*</span></label>
+              <input type="datetime-local" value={form.inicio} onChange={(e) => set('inicio', e.target.value)} className={input} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#374151] block mb-1.5">Fim <span className="text-red-500">*</span></label>
+              <input type="datetime-local" value={form.fim} min={form.inicio} onChange={(e) => set('fim', e.target.value)} className={input} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-[#374151] block mb-1.5">Vagas</label>
+              <input type="number" min={1} max={20} value={form.max_vagas} onChange={(e) => set('max_vagas', e.target.value)} className={input} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-[#374151] block mb-1.5">Valor (R$) <span className="text-red-500">*</span></label>
+              <input type="number" min={0} step={50} value={form.preco} onChange={(e) => set('preco', e.target.value)} className={input} />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-semibold text-[#374151] block mb-1.5">
+              Localização <span className="text-red-500">*</span>
+            </label>
+            <p className="text-xs text-[#64748B] mb-2">
+              Apenas a área aproximada (raio de 500 m) será exibida aos alunos. A cidade é detectada automaticamente.
+            </p>
+            <LocationPicker
+              lat={form.latitude}
+              lng={form.longitude}
+              onChange={(lat, lng) => setForm(f => ({ ...f, latitude: lat, longitude: lng }))}
+              onCityResolved={(cidade) => setForm(f => ({ ...f, cidade }))}
+            />
+          </div>
+
+          {error && <p className="text-sm text-red-500 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5">{error}</p>}
+        </div>
+
+        <div className="px-5 py-4 border-t border-[#E2E8F0] flex gap-3">
+          <button onClick={onClose} disabled={saving} className="flex-1 py-2.5 border border-[#E2E8F0] text-[#374151] rounded-xl text-sm font-medium hover:bg-[#F8FAFC] disabled:opacity-50">
+            Cancelar
+          </button>
+          <button onClick={submit} disabled={saving} className="flex-[2] py-2.5 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50">
+            {saving ? 'Salvando…' : '💾 Salvar alterações'}
           </button>
         </div>
       </div>
@@ -833,6 +980,7 @@ export default function MentorHome() {
   const [activeTab, setActiveTab] = useState('agenda');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [showEdit, setShowEdit] = useState(null); // offering object being edited
   const [offerings, setOfferings] = useState([]);
   const [loadingOfferings, setLoadingOfferings] = useState(true);
   const [expandedId, setExpandedId] = useState(null);
@@ -843,6 +991,7 @@ export default function MentorHome() {
   const [sessionParticipants, setSessionParticipants] = useState([]);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [profileOverride, setProfileOverride] = useState({});
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const displayNome = profileOverride.nome ?? profile?.nome ?? '';
   const displayCidade = profileOverride.cidade ?? profile?.cidade ?? '';
@@ -883,16 +1032,17 @@ export default function MentorHome() {
   useEffect(() => {
     loadOfferings();
     if (profile?.id) {
-      supabase
-        .from('mentor_profiles')
-        .select('*')
-        .eq('id', profile.id)
-        .single()
-        .then(({ data }) => {
-          if (data) setMentorProfile(data);
-        });
+      supabase.from('mentor_profiles').select('*').eq('id', profile.id).single()
+        .then(({ data }) => { if (data) setMentorProfile(data); });
+      supabase.from('notifications').select('id', { count: 'exact', head: true })
+        .eq('user_id', profile.id).eq('lida', false)
+        .then(({ count }) => setUnreadCount(count || 0));
     }
   }, [profile?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'notificacoes') setUnreadCount(0);
+  }, [activeTab]);
 
   async function handleStatusChange(id, status) {
     const { error } = await supabase
@@ -996,6 +1146,11 @@ export default function MentorHome() {
                 }`}
               >
                 {t.icon} {t.label}
+                {t.id === 'notificacoes' && unreadCount > 0 && (
+                  <span className="ml-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {unreadCount}
+                  </span>
+                )}
               </button>
             ))}
           </nav>
@@ -1172,8 +1327,22 @@ export default function MentorHome() {
                               🚀 Publicar
                             </button>
                           )}
+                          {o.status === 'rascunho' && (
+                            <button
+                              onClick={() => setShowEdit(o)}
+                              className="flex-1 py-2 border border-[#E2E8F0] text-[#64748B] rounded-xl text-sm font-medium hover:bg-[#F8FAFC] transition-colors"
+                            >
+                              ✏️ Editar
+                            </button>
+                          )}
                           {o.status === 'publicado' && (
                             <>
+                              <button
+                                onClick={() => setShowEdit(o)}
+                                className="py-2 px-3 border border-[#E2E8F0] text-[#64748B] rounded-xl text-sm font-medium hover:bg-[#F8FAFC] transition-colors"
+                              >
+                                ✏️
+                              </button>
                               <button
                                 onClick={() => navigate(`/offering/${o.id}`)}
                                 className="flex-1 py-2 border border-blue-200 text-blue-600 rounded-xl text-sm font-medium hover:bg-blue-50 transition-colors"
@@ -1290,18 +1459,30 @@ export default function MentorHome() {
                                           </div>
                                         )}
                                         {b.status === 'confirmado' && (
+                                          <div className="flex gap-1.5 flex-shrink-0">
+                                            <button
+                                              onClick={() => handleBookingStatus(b.id, 'rejeitado', o.id)}
+                                              title="Rejeitar candidatura"
+                                              className="w-8 h-8 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 flex items-center justify-center text-sm transition-colors"
+                                            >
+                                              ✕
+                                            </button>
+                                            <button
+                                              onClick={() => handleBookingStatus(b.id, 'concluido', o.id)}
+                                              title="Marcar como concluído"
+                                              className="px-2.5 py-1.5 rounded-lg bg-[#EFF6FF] text-[#1E3A8A] border border-[#BFDBFE] hover:bg-[#DBEAFE] text-xs font-medium transition-colors"
+                                            >
+                                              Concluir
+                                            </button>
+                                          </div>
+                                        )}
+                                        {b.status === 'rejeitado' && (
                                           <button
-                                            onClick={() =>
-                                              handleBookingStatus(
-                                                b.id,
-                                                'concluido',
-                                                o.id,
-                                              )
-                                            }
-                                            title="Marcar como concluído"
-                                            className="px-2.5 py-1.5 rounded-lg bg-[#EFF6FF] text-[#1E3A8A] border border-[#BFDBFE] hover:bg-[#DBEAFE] text-xs font-medium transition-colors flex-shrink-0"
+                                            onClick={() => handleBookingStatus(b.id, 'confirmado', o.id)}
+                                            title="Reativar candidatura"
+                                            className="px-2.5 py-1.5 rounded-lg bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 text-xs font-medium transition-colors flex-shrink-0"
                                           >
-                                            Concluir
+                                            Reativar
                                           </button>
                                         )}
                                       </div>
@@ -1565,6 +1746,14 @@ export default function MentorHome() {
           </div>
         )} */}
 
+        {/* ── NOTIFICAÇÕES ── */}
+        {activeTab === 'notificacoes' && (
+          <NotificationsTab
+            profileId={profile?.id}
+            onOpen={() => setUnreadCount(0)}
+          />
+        )}
+
         {/* ── PERFIL ── */}
         {activeTab === 'perfil' && (
           <div className="max-w-lg mx-auto">
@@ -1714,7 +1903,14 @@ export default function MentorHome() {
             }
             className={`flex-1 flex flex-col items-center py-2.5 gap-0.5 transition-colors ${!t.external && activeTab === t.id ? 'text-[#1E3A8A]' : 'text-[#94A3B8]'}`}
           >
-            <span className="text-lg leading-none">{t.icon}</span>
+            <span className="relative text-lg leading-none">
+              {t.icon}
+              {t.id === 'notificacoes' && unreadCount > 0 && (
+                <span className="absolute -top-1 -right-2 w-4 h-4 bg-red-500 rounded-full text-white text-[8px] font-bold flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </span>
             <span className="text-[10px] font-medium leading-none">
               {t.label}
             </span>
@@ -1727,6 +1923,17 @@ export default function MentorHome() {
           offering={encerrarModal}
           onClose={() => setEncerrarModal(null)}
           onConfirm={confirmEncerrar}
+        />
+      )}
+
+      {showEdit && (
+        <EditOfferingModal
+          offering={showEdit}
+          onClose={() => setShowEdit(null)}
+          onSaved={async () => {
+            setShowEdit(null);
+            await loadOfferings();
+          }}
         />
       )}
 

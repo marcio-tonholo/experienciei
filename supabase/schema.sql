@@ -244,6 +244,9 @@ drop trigger if exists trg_offerings_updated_at on offerings;
 create trigger trg_offerings_updated_at
   before update on offerings for each row execute function set_updated_at();
 
+-- Location coordinates (nullable — map picker is optional)
+alter table offerings add column if not exists latitude  numeric(10,7);
+alter table offerings add column if not exists longitude numeric(10,7);
 
 alter table offerings enable row level security;
 
@@ -362,6 +365,19 @@ create policy "profiles: owner select"
       where bookings.aluno_id = profiles.id
         and bookings.mentor_id = auth.uid()
     ))
+    -- Students enrolled in the same offering can see each other (for global chat names)
+    or (
+      papel = 'aluno'
+      and auth.uid() is not null
+      and exists (
+        select 1 from bookings b1
+        join bookings b2 on b1.offering_id = b2.offering_id
+        where b1.aluno_id = profiles.id
+          and b2.aluno_id = auth.uid()
+          and b1.status not in ('cancelado', 'rejeitado')
+          and b2.status not in ('cancelado', 'rejeitado')
+      )
+    )
   );
 
 -- Allows anon (landing page) to see names of mentors with published offerings
@@ -385,10 +401,29 @@ create table if not exists messages (
   offering_id   uuid        not null references offerings(id) on delete cascade,
   booking_id    uuid        references bookings(id) on delete cascade,
   sender_id     uuid        not null references profiles(id) on delete cascade,
+  sender_nome   text,
   conteudo      text        not null,
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now()
 );
+
+-- Idempotent column addition for existing tables
+alter table messages add column if not exists sender_nome text;
+
+-- Auto-fill sender_nome on insert so all participants can see who sent a message
+-- without depending on cross-user RLS visibility of the profiles table.
+create or replace function fill_message_sender_nome()
+returns trigger language plpgsql security definer as $$
+begin
+  select nome into new.sender_nome from profiles where id = new.sender_id;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_fill_message_sender_nome on messages;
+create trigger trg_fill_message_sender_nome
+  before insert on messages
+  for each row execute function fill_message_sender_nome();
 
 grant select, insert, update on messages to authenticated;
 
@@ -397,6 +432,9 @@ alter table messages enable row level security;
 drop policy if exists "messages: sender or parties select" on messages;
 drop policy if exists "messages: sender insert" on messages;
 
+-- Private messages (booking_id NOT NULL): visible to sender + booking parties.
+-- Global messages  (booking_id IS NULL):  visible to sender + offering mentor
+--                                         + any enrolled student (non-cancelled).
 create policy "messages: sender or parties select"
   on messages for select
   using (
@@ -411,17 +449,224 @@ create policy "messages: sender or parties select"
     )
     or (
       booking_id is null
-      and exists (
-        select 1 from offerings o
-        where o.id = offering_id
-          and o.mentor_id = auth.uid()
+      and (
+        exists (
+          select 1 from offerings o
+          where o.id = offering_id
+            and o.mentor_id = auth.uid()
+        )
+        or exists (
+          select 1 from bookings b
+          where b.offering_id = offering_id
+            and b.aluno_id = auth.uid()
+            and b.status not in ('cancelado', 'rejeitado')
+        )
       )
     )
   );
 
+-- Private insert: sender must be a party to the booking.
+-- Global insert: mentor can always write; students only when status = 'confirmado'.
 create policy "messages: sender insert"
   on messages for insert
-  with check (auth.uid() = sender_id);
+  with check (
+    auth.uid() = sender_id
+    and (
+      (
+        booking_id is not null
+        and exists (
+          select 1 from bookings b
+          where b.id = booking_id
+            and (b.aluno_id = auth.uid() or b.mentor_id = auth.uid())
+        )
+      )
+      or (
+        booking_id is null
+        and (
+          exists (
+            select 1 from offerings o
+            where o.id = offering_id
+              and o.mentor_id = auth.uid()
+          )
+          or exists (
+            select 1 from bookings b
+            where b.offering_id = offering_id
+              and b.aluno_id = auth.uid()
+              and b.status = 'confirmado'
+          )
+        )
+      )
+    )
+  );
+
+-- ------------------------------------------------------------
+-- Notifications
+-- Created server-side by triggers — clients only read/update (mark read).
+-- ------------------------------------------------------------
+create table if not exists notifications (
+  id          uuid        primary key default gen_random_uuid(),
+  user_id     uuid        not null references profiles(id) on delete cascade,
+  tipo        text        not null
+              check (tipo in ('mensagem_privada', 'mensagem_turma', 'booking_status', 'offering_editado')),
+  titulo      text        not null,
+  corpo       text,
+  lida        boolean     not null default false,
+  offering_id uuid        references offerings(id) on delete cascade,
+  booking_id  uuid        references bookings(id) on delete cascade,
+  created_at  timestamptz not null default now()
+);
+
+grant select, update on notifications to authenticated;
+
+alter table notifications enable row level security;
+
+drop policy if exists "notifications: owner select" on notifications;
+drop policy if exists "notifications: owner update" on notifications;
+
+create policy "notifications: owner select"
+  on notifications for select using (auth.uid() = user_id);
+
+create policy "notifications: owner update"
+  on notifications for update using (auth.uid() = user_id);
+
+-- Trigger: booking status change → notify student (all changes) + mentor (on cancellation)
+create or replace function notify_booking_status_change()
+returns trigger language plpgsql security definer as $$
+declare
+  v_titulo    text;
+  v_mentor_id uuid;
+begin
+  if new.status <> old.status then
+    select titulo, mentor_id into v_titulo, v_mentor_id from offerings where id = new.offering_id;
+
+    -- Notify the student on every status change
+    insert into notifications (user_id, tipo, titulo, corpo, offering_id, booking_id)
+    values (
+      new.aluno_id,
+      'booking_status',
+      case new.status
+        when 'confirmado' then 'Candidatura confirmada 🎉'
+        when 'rejeitado'  then 'Candidatura não aprovada'
+        when 'concluido'  then 'Mentoria concluída'
+        when 'cancelado'  then 'Candidatura cancelada'
+        else                   'Status da candidatura atualizado'
+      end,
+      v_titulo,
+      new.offering_id,
+      new.id
+    );
+
+    -- Notify the mentor when the student cancels
+    if new.status = 'cancelado' and v_mentor_id is not null then
+      insert into notifications (user_id, tipo, titulo, corpo, offering_id, booking_id)
+      values (
+        v_mentor_id,
+        'booking_status',
+        'Aluno cancelou a candidatura',
+        v_titulo,
+        new.offering_id,
+        new.id
+      );
+    end if;
+  end if;
+  return new;
+exception when others then
+  return new;
+end;
+$$;
+
+-- Trigger: new message → notify recipient(s)
+create or replace function notify_new_message()
+returns trigger language plpgsql security definer as $$
+declare
+  v_sender_name text;
+  v_preview     text;
+begin
+  select nome into v_sender_name from profiles where id = new.sender_id;
+  v_preview := left(new.conteudo, 100);
+
+  if new.booking_id is not null then
+    -- Private: always notify the other party in the booking
+    insert into notifications (user_id, tipo, titulo, corpo, offering_id, booking_id)
+    select
+      case when b.aluno_id = new.sender_id then b.mentor_id else b.aluno_id end,
+      'mensagem_privada',
+      v_sender_name || ' enviou uma mensagem',
+      v_preview,
+      new.offering_id,
+      new.booking_id
+    from bookings b where b.id = new.booking_id;
+  else
+    -- Global: only notify enrolled students when the MENTOR is the sender.
+    -- When a student sends in the global chat, no notifications are generated.
+    if exists (
+      select 1 from offerings o
+      where o.id = new.offering_id and o.mentor_id = new.sender_id
+    ) then
+      insert into notifications (user_id, tipo, titulo, corpo, offering_id, booking_id)
+      select distinct b.aluno_id, 'mensagem_turma',
+        v_sender_name || ' escreveu no Chat da Turma', v_preview, new.offering_id, null
+      from bookings b
+      where b.offering_id = new.offering_id
+        and b.status not in ('cancelado', 'rejeitado')
+        and b.aluno_id <> new.sender_id;
+    end if;
+  end if;
+  return new;
+exception when others then
+  return new;
+end;
+$$;
+
+-- Trigger: offering content edit → notify all enrolled students with a preview of what changed
+create or replace function notify_offering_edit()
+returns trigger language plpgsql security definer as $$
+declare
+  v_changes text[] := '{}';
+  v_corpo   text;
+begin
+  if new.titulo        is distinct from old.titulo        then v_changes := array_append(v_changes, 'título');        end if;
+  if new.descricao     is distinct from old.descricao     then v_changes := array_append(v_changes, 'descrição');     end if;
+  if new.preco         is distinct from old.preco         then v_changes := array_append(v_changes, 'valor');         end if;
+  if new.max_vagas     is distinct from old.max_vagas     then v_changes := array_append(v_changes, 'vagas');         end if;
+  if new.inicio        is distinct from old.inicio
+     or new.fim        is distinct from old.fim           then v_changes := array_append(v_changes, 'data/horário');  end if;
+  if new.cidade        is distinct from old.cidade
+     or new.latitude   is distinct from old.latitude
+     or new.longitude  is distinct from old.longitude     then v_changes := array_append(v_changes, 'localização');   end if;
+  if new.procedure_id  is distinct from old.procedure_id  then v_changes := array_append(v_changes, 'procedimento');  end if;
+
+  if array_length(v_changes, 1) > 0 then
+    v_corpo := new.titulo || ': mudança de ' || array_to_string(v_changes, ', ');
+    insert into notifications (user_id, tipo, titulo, corpo, offering_id, booking_id)
+    select b.aluno_id, 'offering_editado',
+      'Mentoria atualizada',
+      v_corpo,
+      new.id, b.id
+    from bookings b
+    where b.offering_id = new.id
+      and b.status not in ('cancelado', 'rejeitado');
+  end if;
+  return new;
+exception when others then
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_notify_booking_status on bookings;
+create trigger trg_notify_booking_status
+  after update of status on bookings
+  for each row execute function notify_booking_status_change();
+
+drop trigger if exists trg_notify_new_message on messages;
+create trigger trg_notify_new_message
+  after insert on messages
+  for each row execute function notify_new_message();
+
+drop trigger if exists trg_notify_offering_edit on offerings;
+create trigger trg_notify_offering_edit
+  after update on offerings
+  for each row execute function notify_offering_edit();
 
 -- ------------------------------------------------------------
 -- Storage bucket for document uploads (identity, CRM, etc.)

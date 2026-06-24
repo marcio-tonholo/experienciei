@@ -45,7 +45,7 @@ The database schema is in `supabase/schema.sql` — run it in the Supabase SQL E
 | `/explorar` | `Explorar` | public | Public marketplace of published offerings with live search + specialty filter |
 | `/home` | `HomeRouter` → `MentorHome` or `StudentHome` | `ProtectedRoute` | Role-dispatched home: mentors see `MentorHome`, everyone else sees `StudentHome` |
 | `/mentor/:id` | `MentorProfile` | `ProtectedRoute` | Mentor detail with tabbed content + booking sidebar |
-| `/offering/:id` | `OfferingDetail` | `ProtectedRoute` | Offering detail view with booking actions and async chat |
+| `/offering/:id` | `OfferingDetail` | public | Offering detail view with booking actions and async chat |
 
 ### Auth and route guards
 
@@ -79,18 +79,20 @@ Eight tables, all with RLS enabled:
 
 **OfferingDetail (`src/pages/OfferingDetail.jsx`)** — Two-column layout: left panel has offering header (procedure, mentor info, date/time/vagas/city) plus a tabbed section (Detalhes | Chat); right sticky sidebar shows a booking summary with apply / cancel actions. The chat tab is visible to the offering's mentor or to students who have a booking (`booking_id` optional — NULL means pre-booking). Messages are sent to the `messages` table and reloaded after each send. Enter (without Shift) submits.
 
-**MentorHome (`src/pages/MentorHome.jsx`)** — Dashboard for authenticated mentors. Six tabs:
-- **Agenda** — lists the mentor's `offerings` fetched from Supabase (real data). Includes a "Nova Mentoria" button that opens `CreateOfferingModal`. Each card shows procedure name, complexity badge, date/time range, vagas, price, city/location, status badge, and Publicar/Encerrar actions. Expanding a card lazily loads that offering's `bookings` and lets the mentor accept/reject/conclude each applicant (`handleBookingStatus` updates `bookings.status`).
-- **Sessões / Avaliações / Produção** — still hardcoded demo data.
+**MentorHome (`src/pages/MentorHome.jsx`)** — Dashboard for authenticated mentors. Four active tabs (Avaliações and Produção are commented out):
+- **Agenda** — lists the mentor's `offerings` fetched from Supabase (real data). Includes a "Nova Mentoria" button that opens `CreateOfferingModal`. Each card shows procedure name, complexity badge, date/time range, vagas, price, city/location, status badge, and Publicar/Encerrar actions. Expanding a card lazily loads that offering's `bookings` and lets the mentor accept/reject/conclude each applicant (`handleBookingStatus` updates `bookings.status`). Encerrar opens `EncerrarModal` which marks confirmed bookings as `concluido` before setting offering `status = 'encerrado'`.
+- **Sessões** — shows `pastOfferings` (offerings with `status = 'encerrado'`) from Supabase. Clicking a session opens a detail modal showing all bookings for that offering.
 - **Perfil** — editable mentor profile (inline in file).
 - **Documentos** — renders `DocumentsTab` for document uploads.
 
 `CreateOfferingModal` (defined inline above the main component) loads the `procedures` catalog from Supabase, lets the mentor fill the offering form, and inserts into `offerings`. Selecting a procedure auto-fills `titulo` if blank. Supports "Salvar rascunho" (`status = 'rascunho'`) and "Publicar" (`status = 'publicado'`) actions.
 
+`EncerrarModal` (defined inline) — fetches confirmed bookings for the offering, lets the mentor mark each as `concluido`, then closes the offering.
+
 **StudentHome (`src/pages/StudentHome.jsx`)** — Dashboard for authenticated students. Five tabs (bottom nav):
-- **Explorar** — searchable mentor/procedure list (hardcoded demo data); filter chips by specialty work, text search does not.
-- **Agendamentos** — placeholder; no Supabase queries yet.
-- **Histórico** — placeholder.
+- **Explorar** — fetches `status = 'publicado'` offerings from Supabase joined with `procedures` and `profiles`. Both text search and specialty filter chips are wired to real data and filter client-side. Students can apply inline; each card reflects their existing booking status.
+- **Agendamentos** — fetches real bookings from Supabase; shows `activeBookings` (pending or confirmed non-closed); allows cancellation via `handleCancelBooking`.
+- **Histórico** — shows `pastBookings` (concluded, rejected, cancelled) from the same bookings query. For `concluido` bookings, a "Certificado" button opens `CertificateModal` (defined inline) which generates a printable HTML certificate.
 - **Perfil** — editable student profile (inline in file).
 - **Documentos** — renders `DocumentsTab` for document uploads.
 
@@ -108,7 +110,6 @@ Brand colors are hardcoded hex values (`#1E3A8A`, `#2563EB`, `#0F172A`) rather t
 `COMPLEXITY`, `BOOKING_STATUS`, `fmtDate`, and `fmtTime` are duplicated across `Explorar`, `OfferingDetail`, `StudentHome`, and `MentorHome` — they have not been extracted into shared utilities yet.
 
 ### Known incomplete areas
-- `StudentHome` — Explorar tab is fully hardcoded demo data; text search and dropdowns are wired to state but never filter. Agendamentos and Histórico tabs have no Supabase queries.
-- `MentorHome` sessions/reviews/earnings — still hardcoded; will need real Supabase queries once bookings flow is complete.
-- `MentorProfile` — the `:id` param is captured by the router but not used; always renders hardcoded `Dr. Carlos Silva`. The booking flow triggers a `setTimeout` navigate back to `/home` after `handleRequest()`.
+- `MentorHome` — Avaliações and Produção tabs are commented out; `SESSIONS` and `REVIEWS` hardcoded constants remain in the file but are unused in rendered UI.
+- `MentorProfile` — the `:id` param is captured by the router but not used; always renders hardcoded `Dr. Carlos Silva`. The booking flow triggers a `setTimeout` navigate back to `/home` after `handleRequest()` — no Supabase writes occur.
 - `Landing` is entirely static/hardcoded — no Supabase queries. It navigates to `/auth` with `{ state: { login: true } }` for "Entrar" and plain `navigate('/auth')` for "Cadastrar". `Auth` reads `location.state?.login` to set the initial tab.

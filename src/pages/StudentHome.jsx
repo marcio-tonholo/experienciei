@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import DocumentsTab from '../components/DocumentsTab';
+import NotificationsTab from '../components/NotificationsTab';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -499,11 +500,12 @@ function CertificateModal({ booking, studentName, onClose }) {
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: 'explorar', label: 'Explorar', icon: '🔍' },
-  { id: 'agendamentos', label: 'Agendamentos', icon: '📅' },
-  { id: 'historico', label: 'Histórico', icon: '📚' },
-  { id: 'perfil', label: 'Perfil', icon: '👤' },
-  { id: 'docs', label: 'Documentos', icon: '📄' },
+  { id: 'explorar',      label: 'Explorar',      icon: '🔍' },
+  { id: 'agendamentos',  label: 'Agendamentos',   icon: '📅' },
+  { id: 'historico',     label: 'Histórico',      icon: '📚' },
+  { id: 'notificacoes',  label: 'Notificações',   icon: '🔔' },
+  { id: 'perfil',        label: 'Perfil',         icon: '👤' },
+  { id: 'docs',          label: 'Documentos',     icon: '📄' },
 ];
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -517,6 +519,7 @@ export default function StudentHome() {
   const [filterSpec, setFilterSpec] = useState('Todos');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [certBooking, setCertBooking] = useState(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // Real data
   const [offerings, setOfferings] = useState([]);
@@ -597,16 +600,17 @@ export default function StudentHome() {
     loadOfferings();
     loadBookings();
     if (profile?.id) {
-      supabase
-        .from('student_profiles')
-        .select('*')
-        .eq('id', profile.id)
-        .single()
-        .then(({ data }) => {
-          if (data) setStudentProfile(data);
-        });
+      supabase.from('student_profiles').select('*').eq('id', profile.id).single()
+        .then(({ data }) => { if (data) setStudentProfile(data); });
+      supabase.from('notifications').select('id', { count: 'exact', head: true })
+        .eq('user_id', profile.id).eq('lida', false)
+        .then(({ count }) => setUnreadCount(count || 0));
     }
   }, [profile?.id]);
+
+  useEffect(() => {
+    if (activeTab === 'notificacoes') setUnreadCount(0);
+  }, [activeTab]);
 
   async function handleApply(offeringId, mentorId) {
     if (applying) return;
@@ -694,6 +698,11 @@ export default function StudentHome() {
                 {t.id === 'agendamentos' && activeBookings.length > 0 && (
                   <span className="ml-1.5 bg-[#1E3A8A] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     {activeBookings.length}
+                  </span>
+                )}
+                {t.id === 'notificacoes' && unreadCount > 0 && (
+                  <span className="ml-1.5 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                    {unreadCount}
                   </span>
                 )}
               </button>
@@ -1130,6 +1139,14 @@ export default function StudentHome() {
         )}
 
         {/* ── PERFIL ── */}
+        {/* ── NOTIFICAÇÕES ── */}
+        {activeTab === 'notificacoes' && (
+          <NotificationsTab
+            profileId={profile?.id}
+            onOpen={() => setUnreadCount(0)}
+          />
+        )}
+
         {activeTab === 'perfil' && (
           <div className="max-w-lg mx-auto px-4 sm:px-6 py-8">
             <h2 className="text-xl font-bold text-[#0F172A] mb-6">
@@ -1240,6 +1257,11 @@ export default function StudentHome() {
             {t.id === 'agendamentos' && activeBookings.length > 0 && (
               <span className="absolute top-1.5 right-2 w-4 h-4 bg-[#1E3A8A] text-white text-[9px] font-bold rounded-full flex items-center justify-center">
                 {activeBookings.length}
+              </span>
+            )}
+            {t.id === 'notificacoes' && unreadCount > 0 && (
+              <span className="absolute top-1.5 right-2 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center">
+                {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
           </button>
