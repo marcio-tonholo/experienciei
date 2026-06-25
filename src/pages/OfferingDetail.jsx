@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/AuthContext'
 import LocationMap from '../components/LocationMap'
+import { useUserLocation } from '../contexts/UserLocationContext'
+import { haversineKm, formatDistance } from '../lib/geo'
 
 const COMPLEXITY = {
   basico: { bg: '#DCFCE7', text: '#166534', label: 'Básico' },
@@ -97,6 +99,7 @@ export default function OfferingDetail() {
   const { id: offeringId } = useParams()
   const navigate = useNavigate()
   const { user, profile, signOut } = useAuth()
+  const userLoc = useUserLocation()
 
   const [offering, setOffering] = useState(null)
   const [procedure, setProcedure] = useState(null)
@@ -368,8 +371,14 @@ export default function OfferingDetail() {
 
             <div className="border-t border-[#E2E8F0] pt-4">
               <p className="text-xs text-[#64748B] mb-1">Local</p>
-              <p className="font-medium text-[#1E293B] text-sm">{offering.cidade}</p>
-              {offering.local_descricao && <p className="text-sm text-[#64748B] mt-1">{offering.local_descricao}</p>}
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="font-medium text-[#1E293B] text-sm">{offering.cidade}</p>
+                {userLoc.status === 'granted' && offering.latitude != null && offering.longitude != null && (
+                  <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-[#EFF6FF] border border-[#BFDBFE] text-[#1D4ED8] text-sm font-semibold">
+                    📡 {formatDistance(haversineKm(userLoc.lat, userLoc.lng, offering.latitude, offering.longitude))}
+                  </span>
+                )}
+              </div>
               {offering.latitude != null && offering.longitude != null && (
                 <div className="mt-3">
                   <LocationMap

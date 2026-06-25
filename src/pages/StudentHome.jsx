@@ -4,6 +4,8 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import DocumentsTab from '../components/DocumentsTab';
 import NotificationsTab from '../components/NotificationsTab';
+import { useUserLocation } from '../contexts/UserLocationContext';
+import { haversineKm, formatDistance } from '../lib/geo';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -513,6 +515,7 @@ const TABS = [
 export default function StudentHome() {
   const navigate = useNavigate();
   const { profile, signOut } = useAuth();
+  const userLoc = useUserLocation();
 
   const [activeTab, setActiveTab] = useState('explorar');
   const [searchQuery, setSearchQuery] = useState('');
@@ -901,11 +904,13 @@ export default function StudentHome() {
                               📅 {fmtDate(o.inicio)} · ⏰ {fmtTime(o.inicio)} –{' '}
                               {fmtTime(o.fim)}
                             </p>
-                            <p>
-                              📍 {o.cidade}
-                              {o.local_descricao
-                                ? ` · ${o.local_descricao}`
-                                : ''}
+                            <p className="flex items-center gap-1 flex-wrap">
+                              <span>📍 {o.cidade}</span>
+                              {userLoc.status === 'granted' && o.latitude != null && o.longitude != null && (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EFF6FF] border border-[#BFDBFE] text-[#1D4ED8] font-semibold text-xs">
+                                  📡 {formatDistance(haversineKm(userLoc.lat, userLoc.lng, o.latitude, o.longitude))}
+                                </span>
+                              )}
                             </p>
                             <p>
                               👥 {o.max_vagas}{' '}

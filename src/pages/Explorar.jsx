@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useUserLocation } from '../contexts/UserLocationContext';
+import { haversineKm, formatDistance } from '../lib/geo';
 
 const COMPLEXITY = {
   basico: {
@@ -55,6 +57,7 @@ export default function Explorar() {
 
   const isAluno = profile?.papel === 'aluno';
   const isMentor = profile?.papel === 'mentor';
+  const userLoc = useUserLocation();
 
   const [offerings, setOfferings] = useState([]);
   const [bookings, setBookings] = useState([]);
@@ -408,9 +411,13 @@ export default function Explorar() {
                         📅 {fmtDate(o.inicio)} · ⏰ {fmtTime(o.inicio)} –{' '}
                         {fmtTime(o.fim)}
                       </p>
-                      <p>
-                        📍 {o.cidade}
-                        {o.local_descricao ? ` · ${o.local_descricao}` : ''}
+                      <p className="flex items-center gap-1 flex-wrap">
+                        <span>📍 {o.cidade}</span>
+                        {userLoc.status === 'granted' && o.latitude != null && o.longitude != null && (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EFF6FF] border border-[#BFDBFE] text-[#1D4ED8] font-semibold text-xs">
+                            📡 {formatDistance(haversineKm(userLoc.lat, userLoc.lng, o.latitude, o.longitude))}
+                          </span>
+                        )}
                       </p>
                       <p>
                         👥 {o.max_vagas} {o.max_vagas === 1 ? 'vaga' : 'vagas'}

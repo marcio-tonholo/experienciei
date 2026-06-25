@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
+import { UserLocationProvider } from './contexts/UserLocationContext'
 import Landing from './pages/Landing'
 import Auth from './pages/Auth'
 import AuthCallback from './pages/AuthCallback'
@@ -60,7 +61,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <AppRoutes />
+        <UserLocationProvider>
+          <AppRoutes />
+        </UserLocationProvider>
       </AuthProvider>
     </BrowserRouter>
   )
