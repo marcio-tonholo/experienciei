@@ -976,7 +976,7 @@ function EditMentorProfileModal({ profileId, initial, onClose, onSaved }) {
 
 export default function MentorHome() {
   const navigate = useNavigate();
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, refreshProfile } = useAuth();
   const [activeTab, setActiveTab] = useState('agenda');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
@@ -1032,7 +1032,7 @@ export default function MentorHome() {
   useEffect(() => {
     loadOfferings();
     if (profile?.id) {
-      supabase.from('mentor_profiles').select('*').eq('id', profile.id).single()
+      supabase.from('mentor_profiles').select('*').eq('id', profile.id).maybeSingle()
         .then(({ data }) => { if (data) setMentorProfile(data); });
       supabase.from('notifications').select('id', { count: 'exact', head: true })
         .eq('user_id', profile.id).eq('lida', false)
@@ -1057,14 +1057,26 @@ export default function MentorHome() {
   }
 
   async function loadBookingsForOffering(offeringId) {
-    if (bookingsByOffering[offeringId]) return;
     const { data } = await supabase
       .from('bookings')
       .select('id, status, created_at, aluno:profiles!aluno_id(nome, cidade)')
       .eq('offering_id', offeringId)
       .order('created_at');
-    if (data)
-      setBookingsByOffering((prev) => ({ ...prev, [offeringId]: data }));
+    if (!data) return;
+
+    const { data: paymentsData } = await supabase
+      .from('payments')
+      .select('booking_id, status, metodo_pagamento')
+      .in('booking_id', data.map(b => b.id));
+
+    const paymentsMap = Object.fromEntries(
+      (paymentsData ?? []).map(p => [p.booking_id, p])
+    );
+
+    setBookingsByOffering((prev) => ({
+      ...prev,
+      [offeringId]: data.map(b => ({ ...b, payment: paymentsMap[b.id] ?? null })),
+    }));
   }
 
   async function handleBookingStatus(bookingId, status, offeringId) {
@@ -1102,6 +1114,11 @@ export default function MentorHome() {
     setEncerrarModal(null);
   }
 
+  async function handleRequestReview() {
+    await supabase.from('profiles').update({ status: 'pendente' }).eq('id', profile.id)
+    await refreshProfile()
+  }
+
   async function handleSessionClick(offering) {
     const { data } = await supabase
       .from('bookings')
@@ -1113,6 +1130,74 @@ export default function MentorHome() {
       setSessionParticipants(data);
       setModalSession(offering);
     }
+  }
+
+  // ─── Status guard — bloqueia mentores não aprovados ────────────────────────
+  if (profile?.status !== 'ativo') {
+    const isPendente  = profile?.status === 'pendente'
+    const isRejeitado = profile?.status === 'rejeitado'
+
+    return (
+      <div className="min-h-screen bg-[#F8FAFC]">
+        <header className="bg-white border-b border-[#E2E8F0]">
+          <div className="max-w-xl mx-auto px-5 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-[#1E3A8A] flex items-center justify-center">
+                <LogoSVG />
+              </div>
+              <span className="font-bold text-[#1E3A8A]">Experenciei</span>
+            </div>
+            <button onClick={signOut} className="text-sm text-[#64748B] hover:text-[#1E293B] font-medium">
+              Sair
+            </button>
+          </div>
+        </header>
+
+        <div className="max-w-xl mx-auto px-4 py-8 space-y-4">
+          <div className={`rounded-2xl border p-5 ${
+            isPendente  ? 'bg-amber-50 border-amber-200' :
+            isRejeitado ? 'bg-red-50 border-red-200' :
+                          'bg-gray-50 border-gray-200'
+          }`}>
+            <p className={`text-lg font-bold mb-1 ${isPendente ? 'text-amber-700' : isRejeitado ? 'text-red-700' : 'text-gray-600'}`}>
+              {isPendente  ? '⏳ Cadastro em análise' :
+               isRejeitado ? '❌ Cadastro rejeitado'  :
+                              'Conta inativa'}
+            </p>
+            <p className={`text-sm ${isPendente ? 'text-amber-700' : isRejeitado ? 'text-red-700' : 'text-gray-500'}`}>
+              {isPendente
+                ? 'Nosso time está revisando sua documentação. Enquanto aguarda, envie seus documentos abaixo para agilizar o processo.'
+                : isRejeitado
+                ? 'Seu cadastro não foi aprovado. Veja o motivo abaixo, corrija a documentação e solicite uma nova análise.'
+                : 'Sua conta foi desativada. Entre em contato com o suporte para mais informações.'}
+            </p>
+
+            {isRejeitado && profile?.motivo_rejeicao && (
+              <div className="mt-3 bg-white rounded-xl border border-red-200 px-3 py-2.5">
+                <p className="text-xs font-semibold text-red-600 mb-1">Motivo:</p>
+                <p className="text-sm text-[#1E293B]">{profile.motivo_rejeicao}</p>
+              </div>
+            )}
+
+            {isRejeitado && (
+              <button
+                onClick={handleRequestReview}
+                className="mt-4 w-full py-2.5 rounded-xl bg-[#1E3A8A] text-white text-sm font-medium hover:bg-[#1e40af]"
+              >
+                Solicitar nova análise
+              </button>
+            )}
+          </div>
+
+          {(isPendente || isRejeitado) && (
+            <div>
+              <p className="text-sm font-semibold text-[#1E293B] mb-2 px-1">Seus documentos</p>
+              <DocumentsTab profileId={profile.id} />
+            </div>
+          )}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -1458,24 +1543,36 @@ export default function MentorHome() {
                                             </button>
                                           </div>
                                         )}
-                                        {b.status === 'confirmado' && (
-                                          <div className="flex gap-1.5 flex-shrink-0">
-                                            <button
-                                              onClick={() => handleBookingStatus(b.id, 'rejeitado', o.id)}
-                                              title="Rejeitar candidatura"
-                                              className="w-8 h-8 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 flex items-center justify-center text-sm transition-colors"
-                                            >
-                                              ✕
-                                            </button>
-                                            <button
-                                              onClick={() => handleBookingStatus(b.id, 'concluido', o.id)}
-                                              title="Marcar como concluído"
-                                              className="px-2.5 py-1.5 rounded-lg bg-[#EFF6FF] text-[#1E3A8A] border border-[#BFDBFE] hover:bg-[#DBEAFE] text-xs font-medium transition-colors"
-                                            >
-                                              Concluir
-                                            </button>
-                                          </div>
-                                        )}
+                                        {b.status === 'confirmado' && (() => {
+                                          const pay = b.payment
+                                          return (
+                                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                                              {pay?.status === 'pago' ? (
+                                                <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
+                                                  💳 Pago
+                                                </span>
+                                              ) : (
+                                                <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                                                  💳 Ag. pagamento
+                                                </span>
+                                              )}
+                                              <button
+                                                onClick={() => handleBookingStatus(b.id, 'rejeitado', o.id)}
+                                                title="Rejeitar candidatura"
+                                                className="w-8 h-8 rounded-lg border border-red-200 text-red-500 hover:bg-red-50 flex items-center justify-center text-sm transition-colors"
+                                              >
+                                                ✕
+                                              </button>
+                                              <button
+                                                onClick={() => handleBookingStatus(b.id, 'concluido', o.id)}
+                                                title="Marcar como concluído"
+                                                className="px-2.5 py-1.5 rounded-lg bg-[#EFF6FF] text-[#1E3A8A] border border-[#BFDBFE] hover:bg-[#DBEAFE] text-xs font-medium transition-colors"
+                                              >
+                                                Concluir
+                                              </button>
+                                            </div>
+                                          )
+                                        })()}
                                         {b.status === 'rejeitado' && (
                                           <button
                                             onClick={() => handleBookingStatus(b.id, 'confirmado', o.id)}

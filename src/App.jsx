@@ -8,9 +8,11 @@ import ResetPassword from './pages/ResetPassword'
 import Onboarding from './pages/Onboarding'
 import StudentHome from './pages/StudentHome'
 import MentorHome from './pages/MentorHome'
+import AdminHome from './pages/AdminHome'
 import MentorProfile from './pages/MentorProfile'
 import OfferingDetail from './pages/OfferingDetail'
 import Explorar from './pages/Explorar'
+import PaymentSuccess from './pages/PaymentSuccess'
 
 function ProtectedRoute({ children }) {
   const { user, profile, loading } = useAuth()
@@ -38,7 +40,9 @@ function OnboardingRoute({ children }) {
 
 function HomeRouter() {
   const { profile } = useAuth()
-  return profile?.papel === 'mentor' ? <MentorHome /> : <StudentHome />
+  if (profile?.papel === 'admin')  return <AdminHome />
+  if (profile?.papel === 'mentor') return <MentorHome />
+  return <StudentHome />
 }
 
 function AppRoutes() {
@@ -53,6 +57,7 @@ function AppRoutes() {
       <Route path="/home" element={<ProtectedRoute><HomeRouter /></ProtectedRoute>} />
       <Route path="/mentor/:id" element={<ProtectedRoute><MentorProfile /></ProtectedRoute>} />
       <Route path="/offering/:id" element={<OfferingDetail />} />
+      <Route path="/payment/success" element={<PaymentSuccess />} />
     </Routes>
   )
 }

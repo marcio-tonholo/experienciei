@@ -514,7 +514,7 @@ const TABS = [
 
 export default function StudentHome() {
   const navigate = useNavigate();
-  const { profile, signOut } = useAuth();
+  const { profile, signOut, refreshProfile } = useAuth();
   const userLoc = useUserLocation();
 
   const [activeTab, setActiveTab] = useState('explorar');
@@ -529,6 +529,8 @@ export default function StudentHome() {
   const [bookings, setBookings] = useState([]);
   const [loadingOfferings, setLoadingOfferings] = useState(true);
   const [applying, setApplying] = useState(null);
+  const [paymentsByBooking, setPaymentsByBooking] = useState({});
+  const [paying, setPaying] = useState(null);
   const [studentProfile, setStudentProfile] = useState({});
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [profileOverride, setProfileOverride] = useState({});
@@ -596,7 +598,19 @@ export default function StudentHome() {
       )
       .eq('aluno_id', profile.id)
       .order('created_at', { ascending: false });
-    if (data) setBookings(data);
+    if (data) {
+      setBookings(data);
+      // Busca pagamentos associados aos bookings do aluno
+      const { data: paymentsData } = await supabase
+        .from('payments')
+        .select('booking_id, status, valor_bruto, metodo_pagamento')
+        .eq('aluno_id', profile.id)
+      if (paymentsData) {
+        setPaymentsByBooking(
+          Object.fromEntries(paymentsData.map(p => [p.booking_id, p]))
+        )
+      }
+    }
   }
 
   useEffect(() => {
@@ -615,7 +629,29 @@ export default function StudentHome() {
     if (activeTab === 'notificacoes') setUnreadCount(0);
   }, [activeTab]);
 
+  async function handlePay(bookingId) {
+    setPaying(bookingId)
+    const { data, error } = await supabase.functions.invoke('create-checkout', {
+      body: { booking_id: bookingId, origin: window.location.origin },
+    })
+    if (data?.url) {
+      window.location.href = data.url
+    } else {
+      console.error('Erro ao criar checkout:', error)
+      if (error?.context) {
+        error.context.json().then(body => console.error('Response body:', JSON.stringify(body, null, 2))).catch(() => {})
+      }
+      setPaying(null)
+    }
+  }
+
+  async function handleRequestReview() {
+    await supabase.from('profiles').update({ status: 'pendente' }).eq('id', profile.id)
+    await refreshProfile()
+  }
+
   async function handleApply(offeringId, mentorId) {
+    if (profile?.status !== 'ativo') return;
     if (applying) return;
     setApplying(offeringId);
     const { data, error } = await supabase
@@ -802,6 +838,44 @@ export default function StudentHome() {
               </div>
             </section>
 
+            {profile?.status !== 'ativo' && (
+              <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-6">
+                <div className={`rounded-2xl border px-4 py-3.5 flex items-start gap-3 ${
+                  profile?.status === 'pendente' ? 'bg-amber-50 border-amber-200' : 'bg-red-50 border-red-200'
+                }`}>
+                  <span className="text-xl mt-0.5">
+                    {profile?.status === 'pendente' ? '⏳' : '❌'}
+                  </span>
+                  <div className="flex-1">
+                    <p className={`text-sm font-semibold ${profile?.status === 'pendente' ? 'text-amber-700' : 'text-red-700'}`}>
+                      {profile?.status === 'pendente'
+                        ? 'Cadastro em análise — candidaturas indisponíveis'
+                        : 'Cadastro não aprovado — candidaturas indisponíveis'}
+                    </p>
+                    <p className={`text-xs mt-0.5 ${profile?.status === 'pendente' ? 'text-amber-600' : 'text-red-600'}`}>
+                      {profile?.status === 'pendente'
+                        ? 'Nosso time está revisando sua documentação. Enquanto isso, acesse a aba Documentos para enviar seus arquivos.'
+                        : 'Seu cadastro foi rejeitado. Acesse Documentos, reenvie seus arquivos e solicite nova análise.'}
+                    </p>
+                    {profile?.motivo_rejeicao && (
+                      <div className="mt-2 bg-white rounded-xl border border-red-200 px-3 py-2">
+                        <p className="text-xs font-semibold text-red-600 mb-0.5">Motivo:</p>
+                        <p className="text-xs text-[#1E293B]">{profile.motivo_rejeicao}</p>
+                      </div>
+                    )}
+                    {profile?.status === 'rejeitado' && (
+                      <button
+                        onClick={handleRequestReview}
+                        className="mt-3 px-4 py-1.5 rounded-xl bg-[#1E3A8A] text-white text-xs font-medium hover:bg-[#1e40af]"
+                      >
+                        Solicitar nova análise
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 pb-16">
               {specialties.length > 0 && (
                 <div className="flex gap-2 overflow-x-auto pb-2 mb-6 -mx-4 px-4 sm:mx-0 sm:px-0">
@@ -936,6 +1010,10 @@ export default function StudentHome() {
                               {BOOKING_STATUS[existingBooking.status]?.label ??
                                 existingBooking.status}
                             </div>
+                          ) : profile?.status !== 'ativo' ? (
+                            <div className="w-full py-2.5 bg-[#F1F5F9] text-[#94A3B8] rounded-xl text-sm font-semibold text-center">
+                              {profile?.status === 'pendente' ? 'Cadastro pendente' : 'Cadastro não aprovado'}
+                            </div>
                           ) : (
                             <button
                               onClick={() => handleApply(o.id, o.mentor_id)}
@@ -1047,12 +1125,37 @@ export default function StudentHome() {
                           </button>
                         </div>
                       )}
-                      {b.status === 'confirmado' && (
-                        <p className="mt-3 text-xs text-green-700 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
-                          ✅ Vaga confirmada — você receberá os detalhes por
-                          e-mail.
-                        </p>
-                      )}
+                      {b.status === 'confirmado' && (() => {
+                        const payment = paymentsByBooking[b.id]
+                        const isPago = payment?.status === 'pago'
+                        const isPaying = paying === b.id
+                        const preco = Number(o?.preco ?? 0)
+                          .toLocaleString('pt-BR', { minimumFractionDigits: 2 })
+                        return (
+                          <div className="mt-3 space-y-2">
+                            <p className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-xl px-3 py-2">
+                              ✅ Vaga confirmada pelo mentor!
+                            </p>
+                            {isPago ? (
+                              <div className="flex items-center gap-2 bg-[#F0FDF4] border border-green-200 rounded-xl px-3 py-2.5">
+                                <span className="text-green-600 font-semibold text-sm">💳 Pagamento confirmado</span>
+                                <span className="text-xs text-green-600">
+                                  · {payment.metodo_pagamento === 'pix' ? 'PIX' : 'Cartão'}
+                                  · R$ {preco}
+                                </span>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => handlePay(b.id)}
+                                disabled={isPaying}
+                                className="w-full py-2.5 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-60 transition-opacity"
+                              >
+                                {isPaying ? 'Redirecionando para pagamento...' : `Pagar R$ ${preco}`}
+                              </button>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </div>
                   );
                 })}

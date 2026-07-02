@@ -104,7 +104,7 @@ export default function Explorar() {
   }, [profile?.id, isAluno]);
 
   async function handleApply(offeringId, mentorId) {
-    if (!isAluno || applying) return;
+    if (!isAluno || applying || profile?.status !== 'ativo') return;
     setApplying(offeringId);
     const { data, error } = await supabase
       .from('bookings')
@@ -361,6 +361,12 @@ export default function Explorar() {
                     ✓{' '}
                     {BOOKING_STATUS[existingBooking.status]?.label ??
                       existingBooking.status}
+                  </div>
+                );
+              } else if (isAluno && profile?.status !== 'ativo') {
+                actionBtn = (
+                  <div className="w-full py-2.5 bg-[#F1F5F9] text-[#94A3B8] rounded-xl text-sm font-medium text-center select-none">
+                    {profile?.status === 'pendente' ? 'Cadastro pendente' : 'Cadastro não aprovado'}
                   </div>
                 );
               } else {
