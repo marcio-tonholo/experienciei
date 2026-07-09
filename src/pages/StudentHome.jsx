@@ -499,6 +499,98 @@ function CertificateModal({ booking, studentName, onClose }) {
   );
 }
 
+// ─── AvaliarMentorModal ──────────────────────────────────────────────────────
+
+function StarIcon({ filled }) {
+  return (
+    <svg
+      className={`w-6 h-6 ${filled ? 'text-yellow-400 fill-yellow-400' : 'text-gray-200 fill-gray-200'}`}
+      viewBox="0 0 20 20"
+    >
+      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+    </svg>
+  );
+}
+
+function AvaliarMentorModal({ booking, onClose, onSaved }) {
+  const [nota, setNota] = useState(null);
+  const [comentario, setComentario] = useState('');
+  const [saving, setSaving] = useState(false);
+  const mentorNome = booking.mentor?.nome ?? 'o mentor';
+
+  async function handleSubmit() {
+    if (!nota) return;
+    setSaving(true);
+    const { data, error } = await supabase
+      .from('avaliacoes')
+      .insert({
+        booking_id: booking.id,
+        autor_id: booking.aluno_id,
+        avaliado_id: booking.mentor_id,
+        direcao: 'aluno_para_mentor',
+        nota,
+        comentario: comentario.trim() || null,
+      })
+      .select('booking_id, nota, comentario')
+      .single();
+    setSaving(false);
+    if (!error && data) onSaved(data);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full sm:max-w-sm bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl">
+        <div className="flex items-center justify-between px-5 pt-5 pb-4 border-b border-[#E2E8F0]">
+          <h2 className="text-lg font-bold text-[#0F172A]">Avaliar mentor</h2>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full hover:bg-[#F1F5F9] flex items-center justify-center text-[#64748B] text-lg leading-none"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="px-5 py-5 space-y-4">
+          <p className="text-sm text-[#374151]">
+            Como foi sua experiência com <strong>{mentorNome}</strong>?
+          </p>
+          <div className="flex items-center gap-1 justify-center">
+            {[1, 2, 3, 4, 5].map((n) => (
+              <button key={n} type="button" onClick={() => setNota(n)} className="p-1">
+                <StarIcon filled={nota != null && n <= nota} />
+              </button>
+            ))}
+          </div>
+          <textarea
+            value={comentario}
+            onChange={(e) => setComentario(e.target.value)}
+            rows={3}
+            placeholder="Comentário (opcional)"
+            className="w-full border border-[#E2E8F0] rounded-xl px-3 py-2.5 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30 focus:border-[#2563EB] resize-none"
+          />
+        </div>
+
+        <div className="px-5 pb-5 flex gap-3">
+          <button
+            onClick={onClose}
+            className="flex-1 py-2.5 border border-[#E2E8F0] text-[#64748B] rounded-xl text-sm font-medium hover:bg-[#F8FAFC] transition-colors"
+          >
+            Agora não
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!nota || saving}
+            className="flex-1 py-2.5 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {saving ? 'Enviando...' : 'Enviar avaliação'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
 const TABS = [
@@ -522,6 +614,8 @@ export default function StudentHome() {
   const [filterSpec, setFilterSpec] = useState('Todos');
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [certBooking, setCertBooking] = useState(null);
+  const [rateBooking, setRateBooking] = useState(null);
+  const [myReviews, setMyReviews] = useState({});
   const [unreadCount, setUnreadCount] = useState(0);
 
   // Real data
@@ -608,6 +702,16 @@ export default function StudentHome() {
       if (paymentsData) {
         setPaymentsByBooking(
           Object.fromEntries(paymentsData.map(p => [p.booking_id, p]))
+        )
+      }
+      const { data: reviewsData } = await supabase
+        .from('avaliacoes')
+        .select('booking_id, nota, comentario')
+        .eq('autor_id', profile.id)
+        .eq('direcao', 'aluno_para_mentor')
+      if (reviewsData) {
+        setMyReviews(
+          Object.fromEntries(reviewsData.map((r) => [r.booking_id, r])),
         )
       }
     }
@@ -1235,6 +1339,19 @@ export default function StudentHome() {
                             >
                               📜 Certificado
                             </button>
+                            {myReviews[b.id] ? (
+                              <div className="px-3 py-1 text-xs text-[#64748B] text-center">
+                                {'★'.repeat(myReviews[b.id].nota)}
+                                {'☆'.repeat(5 - myReviews[b.id].nota)}
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setRateBooking(b)}
+                                className="px-3 py-1.5 border border-[#E2E8F0] text-[#374151] rounded-lg text-xs font-medium hover:bg-[#F8FAFC] transition-colors"
+                              >
+                                ⭐ Avaliar mentor
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1381,6 +1498,17 @@ export default function StudentHome() {
           booking={certBooking}
           studentName={displayNome}
           onClose={() => setCertBooking(null)}
+        />
+      )}
+
+      {rateBooking && (
+        <AvaliarMentorModal
+          booking={rateBooking}
+          onClose={() => setRateBooking(null)}
+          onSaved={(review) => {
+            setMyReviews((prev) => ({ ...prev, [review.booking_id]: review }));
+            setRateBooking(null);
+          }}
         />
       )}
 

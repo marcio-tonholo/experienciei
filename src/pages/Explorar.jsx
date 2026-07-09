@@ -45,6 +45,23 @@ function fmtTime(iso) {
   });
 }
 
+function StarsDisplay({ value }) {
+  const rounded = Math.round(value);
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <svg
+          key={n}
+          className={`w-3.5 h-3.5 ${n <= rounded ? 'text-yellow-400 fill-yellow-400' : 'text-gray-200 fill-gray-200'}`}
+          viewBox="0 0 20 20"
+        >
+          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+        </svg>
+      ))}
+    </div>
+  );
+}
+
 const LogoSVG = () => (
   <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 512 512">
     <path d="M272 464h-32a32 32 0 01-32-32l.05-85.82a4 4 0 00-6-3.47l-74.34 43.06a31.48 31.48 0 01-43-11.52l-16.5-28.64a31.65 31.65 0 0111.56-42.8l74.61-43.25a4 4 0 000-6.92l-74.54-43.21a31.41 31.41 0 01-11.55-43l16.44-28.55a31.48 31.48 0 0143.07-11.54l74.31 43a4 4 0 006-3.47L208 80a32 32 0 0132-32h32a32 32 0 0132 32v85.72a4 4 0 006 3.47l74.34-43.06a31.51 31.51 0 0143 11.52l16.49 28.73a31.52 31.52 0 01-11.64 42.86l-74.53 43.2a4 4 0 000 6.92l74.53 43.2a31.42 31.42 0 0111.56 43l-16.44 28.55a31.48 31.48 0 01-43.07 11.54l-74.31-43a4 4 0 00-6 3.46L304 432a32 32 0 01-32 32z" />
@@ -66,6 +83,62 @@ export default function Explorar() {
   const [applying, setApplying] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSpec, setFilterSpec] = useState('Todos');
+  const [topMentores, setTopMentores] = useState([]);
+
+  useEffect(() => {
+    async function loadRanking() {
+      const { data: reviews } = await supabase
+        .from('avaliacoes')
+        .select('avaliado_id, nota')
+        .eq('direcao', 'aluno_para_mentor');
+      if (!reviews || reviews.length === 0) return;
+
+      const byMentor = reviews.reduce((acc, r) => {
+        const cur = acc[r.avaliado_id] ?? { sum: 0, count: 0 };
+        cur.sum += r.nota;
+        cur.count += 1;
+        acc[r.avaliado_id] = cur;
+        return acc;
+      }, {});
+
+      const ranked = Object.entries(byMentor)
+        .map(([mentorId, { sum, count }]) => ({
+          mentorId,
+          avg: sum / count,
+          count,
+        }))
+        .sort((a, b) => b.avg - a.avg || b.count - a.count)
+        .slice(0, 6);
+
+      const ids = ranked.map((r) => r.mentorId);
+      const [{ data: profilesData }, { data: mentorProfilesData }] =
+        await Promise.all([
+          supabase.from('profiles').select('id, nome, cidade').in('id', ids),
+          supabase
+            .from('mentor_profiles')
+            .select('id, especialidade')
+            .in('id', ids),
+        ]);
+      const profilesById = Object.fromEntries(
+        (profilesData ?? []).map((p) => [p.id, p]),
+      );
+      const especialidadeById = Object.fromEntries(
+        (mentorProfilesData ?? []).map((m) => [m.id, m.especialidade]),
+      );
+
+      setTopMentores(
+        ranked
+          .filter((r) => profilesById[r.mentorId])
+          .map((r) => ({
+            ...r,
+            nome: profilesById[r.mentorId].nome,
+            cidade: profilesById[r.mentorId].cidade,
+            especialidade: especialidadeById[r.mentorId],
+          })),
+      );
+    }
+    loadRanking();
+  }, []);
 
   useEffect(() => {
     if (authLoading) return;
@@ -251,6 +324,51 @@ export default function Explorar() {
                 {sp}
               </button>
             ))}
+          </div>
+        )}
+
+        {topMentores.length > 0 && (
+          <div className="mb-6">
+            <h2 className="text-sm font-bold text-[#0F172A] mb-3">
+              🏆 Mentores mais bem avaliados
+            </h2>
+            <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0">
+              {topMentores.map((m) => {
+                const mentorInitials = m.nome
+                  .split(' ')
+                  .map((w) => w[0])
+                  .slice(0, 2)
+                  .join('');
+                return (
+                  <div
+                    key={m.mentorId}
+                    className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-4 flex-shrink-0 w-56"
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#1E3A8A] to-[#2563EB] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                        {mentorInitials}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-[#1E293B] truncate">
+                          {m.nome}
+                        </p>
+                        {m.especialidade && (
+                          <p className="text-xs text-[#64748B] truncate">
+                            {m.especialidade}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <StarsDisplay value={m.avg} />
+                      <span className="text-xs text-[#64748B]">
+                        {m.avg.toFixed(1)} ({m.count})
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

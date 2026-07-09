@@ -147,6 +147,23 @@ function StarIcon({ filled }) {
   );
 }
 
+function RatingStars({ value, onChange }) {
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <button
+          key={n}
+          type="button"
+          onClick={() => onChange(n === value ? null : n)}
+          className="p-0.5"
+        >
+          <StarIcon filled={value != null && n <= value} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function StudentAvatar({ name }) {
   const initials = name
     .split(' ')
@@ -165,6 +182,7 @@ function StudentAvatar({ name }) {
 const TABS = [
   { id: 'agenda',        label: 'Agenda',        icon: '📅' },
   { id: 'sessoes',       label: 'Sessões',        icon: '🏥' },
+  { id: 'financeiro',    label: 'Financeiro',    icon: '💰' },
   { id: 'notificacoes',  label: 'Notificações',   icon: '🔔' },
   { id: 'perfil',        label: 'Perfil',         icon: '👤' },
   { id: 'docs',          label: 'Documentos',     icon: '📄' },
@@ -172,16 +190,17 @@ const TABS = [
 
 // ─── EncerrarModal ───────────────────────────────────────────────────────────
 
-function EncerrarModal({ offering, onClose, onConfirm }) {
+function EncerrarModal({ offering, mentorId, onClose, onConfirm }) {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [completed, setCompleted] = useState({});
+  const [ratings, setRatings] = useState({});
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     supabase
       .from('bookings')
-      .select('id, aluno:profiles!aluno_id(nome, cidade)')
+      .select('id, aluno_id, aluno:profiles!aluno_id(nome, cidade)')
       .eq('offering_id', offering.id)
       .eq('status', 'confirmado')
       .order('created_at')
@@ -194,8 +213,32 @@ function EncerrarModal({ offering, onClose, onConfirm }) {
       });
   }, [offering.id]);
 
+  function setRating(bookingId, field, value) {
+    setRatings((prev) => ({
+      ...prev,
+      [bookingId]: { ...prev[bookingId], [field]: value },
+    }));
+  }
+
   async function handleConfirm() {
     setSaving(true);
+    const toRate = Object.entries(ratings).filter(([, r]) => r?.nota);
+    if (toRate.length > 0) {
+      await supabase.from('avaliacoes').upsert(
+        toRate.map(([bookingId, r]) => {
+          const b = bookings.find((x) => x.id === bookingId);
+          return {
+            booking_id: bookingId,
+            autor_id: mentorId,
+            avaliado_id: b.aluno_id,
+            direcao: 'mentor_para_aluno',
+            nota: r.nota,
+            comentario: r.comentario?.trim() || null,
+          };
+        }),
+        { onConflict: 'booking_id,autor_id' },
+      );
+    }
     await onConfirm(offering.id, completed);
     setSaving(false);
   }
@@ -239,42 +282,63 @@ function EncerrarModal({ offering, onClose, onConfirm }) {
               </p>
               <div className="space-y-3">
                 {bookings.map((b) => (
-                  <label
+                  <div
                     key={b.id}
-                    className="flex items-center gap-3 p-3 rounded-xl border border-[#E2E8F0] cursor-pointer hover:bg-[#F8FAFC] transition-colors"
+                    className="rounded-xl border border-[#E2E8F0] hover:bg-[#F8FAFC] transition-colors"
                   >
-                    <input
-                      type="checkbox"
-                      checked={completed[b.id] ?? true}
-                      onChange={(e) =>
-                        setCompleted((prev) => ({
-                          ...prev,
-                          [b.id]: e.target.checked,
-                        }))
-                      }
-                      className="w-5 h-5 rounded accent-[#2563EB] flex-shrink-0"
-                    />
-                    <StudentAvatar name={b.aluno.nome} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-semibold text-[#0F172A] truncate">
-                        {b.aluno.nome}
-                      </p>
-                      {b.aluno.cidade && (
-                        <p className="text-xs text-[#64748B]">
-                          {b.aluno.cidade}
+                    <label className="flex items-center gap-3 p-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={completed[b.id] ?? true}
+                        onChange={(e) =>
+                          setCompleted((prev) => ({
+                            ...prev,
+                            [b.id]: e.target.checked,
+                          }))
+                        }
+                        className="w-5 h-5 rounded accent-[#2563EB] flex-shrink-0"
+                      />
+                      <StudentAvatar name={b.aluno.nome} />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-[#0F172A] truncate">
+                          {b.aluno.nome}
                         </p>
-                      )}
-                    </div>
-                    <span
-                      className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
-                        completed[b.id]
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
-                      {completed[b.id] ? 'Concluído' : 'Não concluído'}
-                    </span>
-                  </label>
+                        {b.aluno.cidade && (
+                          <p className="text-xs text-[#64748B]">
+                            {b.aluno.cidade}
+                          </p>
+                        )}
+                      </div>
+                      <span
+                        className={`ml-auto text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
+                          completed[b.id]
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}
+                      >
+                        {completed[b.id] ? 'Concluído' : 'Não concluído'}
+                      </span>
+                    </label>
+                    {completed[b.id] && (
+                      <div className="px-3 pb-3 flex items-center gap-2">
+                        <RatingStars
+                          value={ratings[b.id]?.nota}
+                          onChange={(n) => setRating(b.id, 'nota', n)}
+                        />
+                        {ratings[b.id]?.nota && (
+                          <input
+                            type="text"
+                            placeholder="Comentário (opcional)"
+                            value={ratings[b.id]?.comentario ?? ''}
+                            onChange={(e) =>
+                              setRating(b.id, 'comentario', e.target.value)
+                            }
+                            className="flex-1 min-w-0 border border-[#E2E8F0] rounded-lg px-2.5 py-1 text-xs text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30"
+                          />
+                        )}
+                      </div>
+                    )}
+                  </div>
                 ))}
               </div>
             </>
@@ -989,9 +1053,14 @@ export default function MentorHome() {
   const [encerrarModal, setEncerrarModal] = useState(null);
   const [modalSession, setModalSession] = useState(null);
   const [sessionParticipants, setSessionParticipants] = useState([]);
+  const [sessionReviews, setSessionReviews] = useState({});
+  const [ratingDraftFor, setRatingDraftFor] = useState(null);
+  const [ratingDraft, setRatingDraft] = useState({ nota: null, comentario: '' });
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [profileOverride, setProfileOverride] = useState({});
   const [unreadCount, setUnreadCount] = useState(0);
+  const [financeRows, setFinanceRows] = useState([]);
+  const [loadingFinance, setLoadingFinance] = useState(true);
 
   const displayNome = profileOverride.nome ?? profile?.nome ?? '';
   const displayCidade = profileOverride.cidade ?? profile?.cidade ?? '';
@@ -1017,6 +1086,13 @@ export default function MentorHome() {
     .filter((o) => o.status === 'encerrado')
     .sort((a, b) => new Date(b.fim) - new Date(a.fim));
 
+  const alunosPagos = financeRows.filter((b) => b.payment?.status === 'pago');
+  const totalRecebido = alunosPagos.reduce((s, b) => s + Number(b.payment.valor_bruto), 0);
+  const totalRepassado = alunosPagos
+    .filter((b) => b.payment.repasse_status === 'repassado')
+    .reduce((s, b) => s + Number(b.payment.valor_bruto), 0);
+  const totalARepassar = totalRecebido - totalRepassado;
+
   async function loadOfferings() {
     if (!profile?.id) return;
     setLoadingOfferings(true);
@@ -1029,8 +1105,36 @@ export default function MentorHome() {
     setLoadingOfferings(false);
   }
 
+  async function loadFinance() {
+    if (!profile?.id) return;
+    setLoadingFinance(true);
+    const { data } = await supabase
+      .from('bookings')
+      .select(
+        'id, status, aluno:profiles!aluno_id(nome), offerings(titulo, preco)',
+      )
+      .eq('mentor_id', profile.id)
+      .in('status', ['confirmado', 'concluido'])
+      .order('created_at', { ascending: false });
+
+    if (data) {
+      const { data: paymentsData } = await supabase
+        .from('payments')
+        .select('booking_id, status, valor_bruto, repasse_status')
+        .eq('mentor_id', profile.id);
+      const paymentsMap = Object.fromEntries(
+        (paymentsData ?? []).map((p) => [p.booking_id, p]),
+      );
+      setFinanceRows(
+        data.map((b) => ({ ...b, payment: paymentsMap[b.id] ?? null })),
+      );
+    }
+    setLoadingFinance(false);
+  }
+
   useEffect(() => {
     loadOfferings();
+    loadFinance();
     if (profile?.id) {
       supabase.from('mentor_profiles').select('*').eq('id', profile.id).maybeSingle()
         .then(({ data }) => { if (data) setMentorProfile(data); });
@@ -1122,13 +1226,47 @@ export default function MentorHome() {
   async function handleSessionClick(offering) {
     const { data } = await supabase
       .from('bookings')
-      .select('id, status, aluno:profiles!aluno_id(nome, cidade)')
+      .select('id, aluno_id, status, aluno:profiles!aluno_id(nome, cidade)')
       .eq('offering_id', offering.id)
       .in('status', ['confirmado', 'concluido'])
       .order('created_at');
     if (data) {
       setSessionParticipants(data);
       setModalSession(offering);
+      const { data: reviews } = await supabase
+        .from('avaliacoes')
+        .select('booking_id, nota, comentario')
+        .eq('autor_id', profile.id)
+        .eq('direcao', 'mentor_para_aluno')
+        .in(
+          'booking_id',
+          data.map((b) => b.id),
+        );
+      setSessionReviews(
+        Object.fromEntries((reviews ?? []).map((r) => [r.booking_id, r])),
+      );
+    }
+  }
+
+  async function saveSessionReview(bookingId, alunoId, nota, comentario) {
+    const { data } = await supabase
+      .from('avaliacoes')
+      .upsert(
+        {
+          booking_id: bookingId,
+          autor_id: profile.id,
+          avaliado_id: alunoId,
+          direcao: 'mentor_para_aluno',
+          nota,
+          comentario: comentario?.trim() || null,
+        },
+        { onConflict: 'booking_id,autor_id' },
+      )
+      .select('booking_id, nota, comentario')
+      .single();
+    if (data) {
+      setSessionReviews((prev) => ({ ...prev, [bookingId]: data }));
+      setRatingDraftFor(null);
     }
   }
 
@@ -1975,6 +2113,109 @@ export default function MentorHome() {
           </div>
         )}
 
+        {/* ── FINANCEIRO ── */}
+        {activeTab === 'financeiro' && (
+          <div>
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-xl font-bold text-[#0F172A]">Financeiro</h2>
+              <span className="text-sm text-[#64748B]">
+                {financeRows.length} mentorias
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              <div className="bg-white rounded-2xl border border-[#E2E8F0] p-4 text-center shadow-sm">
+                <p className="text-lg font-bold text-[#0F172A]">
+                  R$ {totalRecebido.toLocaleString('pt-BR')}
+                </p>
+                <p className="text-xs text-[#64748B] mt-1">Total recebido</p>
+              </div>
+              <div className="bg-green-50 rounded-2xl border border-green-100 p-4 text-center shadow-sm">
+                <p className="text-lg font-bold text-green-700">
+                  R$ {totalRepassado.toLocaleString('pt-BR')}
+                </p>
+                <p className="text-xs text-[#64748B] mt-1">Já repassado</p>
+              </div>
+              <div className="bg-amber-50 rounded-2xl border border-amber-100 p-4 text-center shadow-sm">
+                <p className="text-lg font-bold text-amber-600">
+                  R$ {totalARepassar.toLocaleString('pt-BR')}
+                </p>
+                <p className="text-xs text-[#64748B] mt-1">A repassar</p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] p-6 shadow-sm">
+              {loadingFinance ? (
+                <div className="flex justify-center py-10">
+                  <div className="w-8 h-8 rounded-full border-4 border-[#1E3A8A] border-t-transparent animate-spin" />
+                </div>
+              ) : financeRows.length === 0 ? (
+                <div className="text-center py-10">
+                  <p className="text-3xl mb-2">💰</p>
+                  <p className="font-medium text-[#1E293B] mb-1">
+                    Nenhuma mentoria confirmada até o momento
+                  </p>
+                  <p className="text-sm text-[#94A3B8]">
+                    Os pagamentos das suas mentorias aparecerão aqui
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wide mb-1">
+                    Alunos
+                  </p>
+                  {financeRows.map((b) => {
+                    const paid = b.payment?.status === 'pago';
+                    return (
+                      <div
+                        key={b.id}
+                        className="flex items-center gap-3 bg-[#F8FAFC] rounded-xl p-3"
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#1E293B] truncate">
+                            {b.aluno?.nome ?? 'Aluno'}
+                          </p>
+                          <p className="text-xs text-[#64748B] truncate">
+                            {b.offerings?.titulo ?? '—'}
+                          </p>
+                        </div>
+                        <p className="text-sm font-semibold text-[#1E293B] flex-shrink-0">
+                          R${' '}
+                          {Number(
+                            b.payment?.valor_bruto ?? b.offerings?.preco ?? 0,
+                          ).toLocaleString('pt-BR')}
+                        </p>
+                        {paid ? (
+                          <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full flex-shrink-0">
+                            💳 Pago
+                          </span>
+                        ) : (
+                          <span className="text-xs font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full flex-shrink-0">
+                            💳 Ag. pagamento
+                          </span>
+                        )}
+                        {paid && (
+                          <span
+                            className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
+                              b.payment.repasse_status === 'repassado'
+                                ? 'text-[#1E3A8A] bg-[#EFF6FF]'
+                                : 'text-slate-500 bg-slate-100'
+                            }`}
+                          >
+                            {b.payment.repasse_status === 'repassado'
+                              ? 'Repassado'
+                              : 'Repasse pendente'}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* ── DOCUMENTOS ── */}
         {activeTab === 'docs' && (
           <div className="max-w-lg mx-auto">
@@ -2018,6 +2259,7 @@ export default function MentorHome() {
       {encerrarModal && (
         <EncerrarModal
           offering={encerrarModal}
+          mentorId={profile.id}
           onClose={() => setEncerrarModal(null)}
           onConfirm={confirmEncerrar}
         />
@@ -2093,37 +2335,111 @@ export default function MentorHome() {
                   Nenhum participante confirmado
                 </p>
               ) : (
-                sessionParticipants.map((b) => (
-                  <div
-                    key={b.id}
-                    className="flex items-center gap-3 p-3 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0]"
-                  >
-                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                      {(b.aluno?.nome ?? 'A')
-                        .split(' ')
-                        .map((w) => w[0])
-                        .slice(0, 2)
-                        .join('')}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-[#1E293B] truncate">
-                        {b.aluno?.nome}
-                      </p>
-                      <p className="text-xs text-[#94A3B8]">
-                        {b.aluno?.cidade}
-                      </p>
-                    </div>
-                    <span
-                      className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
-                        b.status === 'confirmado'
-                          ? 'bg-blue-100 text-blue-700'
-                          : 'bg-green-100 text-green-700'
-                      }`}
+                sessionParticipants.map((b) => {
+                  const review = sessionReviews[b.id];
+                  const isRating = ratingDraftFor === b.id;
+                  return (
+                    <div
+                      key={b.id}
+                      className="p-3 bg-[#F8FAFC] rounded-xl border border-[#E2E8F0]"
                     >
-                      {b.status === 'confirmado' ? 'Confirmado' : 'Concluído'}
-                    </span>
-                  </div>
-                ))
+                      <div className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-400 to-slate-600 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                          {(b.aluno?.nome ?? 'A')
+                            .split(' ')
+                            .map((w) => w[0])
+                            .slice(0, 2)
+                            .join('')}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-[#1E293B] truncate">
+                            {b.aluno?.nome}
+                          </p>
+                          <p className="text-xs text-[#94A3B8]">
+                            {b.aluno?.cidade}
+                          </p>
+                        </div>
+                        <span
+                          className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 ${
+                            b.status === 'confirmado'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-green-100 text-green-700'
+                          }`}
+                        >
+                          {b.status === 'confirmado' ? 'Confirmado' : 'Concluído'}
+                        </span>
+                      </div>
+
+                      {b.status === 'concluido' && (
+                        <div className="mt-2 pt-2 border-t border-[#E2E8F0]">
+                          {review ? (
+                            <div className="flex items-center gap-2">
+                              <RatingStars value={review.nota} onChange={() => {}} />
+                              {review.comentario && (
+                                <p className="text-xs text-[#64748B] truncate">
+                                  “{review.comentario}”
+                                </p>
+                              )}
+                            </div>
+                          ) : isRating ? (
+                            <div className="space-y-2">
+                              <RatingStars
+                                value={ratingDraft.nota}
+                                onChange={(n) =>
+                                  setRatingDraft((d) => ({ ...d, nota: n }))
+                                }
+                              />
+                              <input
+                                type="text"
+                                placeholder="Comentário (opcional)"
+                                value={ratingDraft.comentario}
+                                onChange={(e) =>
+                                  setRatingDraft((d) => ({
+                                    ...d,
+                                    comentario: e.target.value,
+                                  }))
+                                }
+                                className="w-full border border-[#E2E8F0] rounded-lg px-2.5 py-1 text-xs text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/30"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setRatingDraftFor(null)}
+                                  className="text-xs text-[#64748B] px-2 py-1"
+                                >
+                                  Cancelar
+                                </button>
+                                <button
+                                  disabled={!ratingDraft.nota}
+                                  onClick={() =>
+                                    saveSessionReview(
+                                      b.id,
+                                      b.aluno_id,
+                                      ratingDraft.nota,
+                                      ratingDraft.comentario,
+                                    )
+                                  }
+                                  className="text-xs font-semibold text-white bg-[#1E3A8A] rounded-lg px-3 py-1 disabled:opacity-50"
+                                >
+                                  Salvar avaliação
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setRatingDraftFor(b.id);
+                                setRatingDraft({ nota: null, comentario: '' });
+                              }}
+                              className="text-xs font-medium text-[#1E3A8A] hover:underline"
+                            >
+                              ⭐ Avaliar aluno
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
           </div>
