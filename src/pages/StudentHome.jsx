@@ -499,6 +499,25 @@ function CertificateModal({ booking, studentName, onClose }) {
   );
 }
 
+// ─── StarsDisplay (read-only ranking stars) ─────────────────────────────────
+
+function StarsDisplay({ value }) {
+  const rounded = Math.round(value);
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((n) => (
+        <svg
+          key={n}
+          className={`w-3.5 h-3.5 ${n <= rounded ? 'text-yellow-400 fill-yellow-400' : 'text-gray-200 fill-gray-200'}`}
+          viewBox="0 0 20 20"
+        >
+          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+        </svg>
+      ))}
+    </div>
+  );
+}
+
 // ─── AvaliarMentorModal ──────────────────────────────────────────────────────
 
 function StarIcon({ filled }) {
@@ -628,6 +647,7 @@ export default function StudentHome() {
   const [studentProfile, setStudentProfile] = useState({});
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [profileOverride, setProfileOverride] = useState({});
+  const [topMentores, setTopMentores] = useState([]);
 
   const displayNome = profileOverride.nome ?? profile?.nome ?? '';
   const displayCidade = profileOverride.cidade ?? profile?.cidade ?? '';
@@ -732,6 +752,61 @@ export default function StudentHome() {
   useEffect(() => {
     if (activeTab === 'notificacoes') setUnreadCount(0);
   }, [activeTab]);
+
+  useEffect(() => {
+    async function loadRanking() {
+      const { data: reviews } = await supabase
+        .from('avaliacoes')
+        .select('avaliado_id, nota')
+        .eq('direcao', 'aluno_para_mentor');
+      if (!reviews || reviews.length === 0) return;
+
+      const byMentor = reviews.reduce((acc, r) => {
+        const cur = acc[r.avaliado_id] ?? { sum: 0, count: 0 };
+        cur.sum += r.nota;
+        cur.count += 1;
+        acc[r.avaliado_id] = cur;
+        return acc;
+      }, {});
+
+      const ranked = Object.entries(byMentor)
+        .map(([mentorId, { sum, count }]) => ({
+          mentorId,
+          avg: sum / count,
+          count,
+        }))
+        .sort((a, b) => b.avg - a.avg || b.count - a.count)
+        .slice(0, 6);
+
+      const ids = ranked.map((r) => r.mentorId);
+      const [{ data: profilesData }, { data: mentorProfilesData }] =
+        await Promise.all([
+          supabase.from('profiles').select('id, nome, cidade').in('id', ids),
+          supabase
+            .from('mentor_profiles')
+            .select('id, especialidade')
+            .in('id', ids),
+        ]);
+      const profilesById = Object.fromEntries(
+        (profilesData ?? []).map((p) => [p.id, p]),
+      );
+      const especialidadeById = Object.fromEntries(
+        (mentorProfilesData ?? []).map((m) => [m.id, m.especialidade]),
+      );
+
+      setTopMentores(
+        ranked
+          .filter((r) => profilesById[r.mentorId])
+          .map((r) => ({
+            ...r,
+            nome: profilesById[r.mentorId].nome,
+            cidade: profilesById[r.mentorId].cidade,
+            especialidade: especialidadeById[r.mentorId],
+          })),
+      );
+    }
+    loadRanking();
+  }, []);
 
   async function handlePay(bookingId) {
     setPaying(bookingId)
@@ -996,6 +1071,51 @@ export default function StudentHome() {
                       {sp}
                     </button>
                   ))}
+                </div>
+              )}
+
+              {topMentores.length > 0 && (
+                <div className="mb-6">
+                  <h2 className="text-sm font-bold text-[#0F172A] mb-3">
+                    🏆 Mentores mais bem avaliados
+                  </h2>
+                  <div className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0">
+                    {topMentores.map((m) => {
+                      const mentorInitials = m.nome
+                        .split(' ')
+                        .map((w) => w[0])
+                        .slice(0, 2)
+                        .join('');
+                      return (
+                        <div
+                          key={m.mentorId}
+                          className="bg-white rounded-2xl border border-[#E2E8F0] shadow-sm p-4 flex-shrink-0 w-56"
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#1E3A8A] to-[#2563EB] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                              {mentorInitials}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-[#1E293B] truncate">
+                                {m.nome}
+                              </p>
+                              {m.especialidade && (
+                                <p className="text-xs text-[#64748B] truncate">
+                                  {m.especialidade}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <StarsDisplay value={m.avg} />
+                            <span className="text-xs text-[#64748B]">
+                              {m.avg.toFixed(1)} ({m.count})
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
