@@ -274,7 +274,7 @@ function UserCard({ profile, tab, saving, onApprove, onReject, onDeactivate, onR
 // ─── Aba de Repasses ──────────────────────────────────────────────────────────
 function RepassesTab({ payments, loading, repassando, onRepasse }) {
   const totalRecebido  = payments.reduce((s, p) => s + Number(p.valor_bruto), 0)
-  const totalPendente  = payments.filter(p => p.repasse_status === 'pendente').reduce((s, p) => s + Number(p.valor_bruto), 0)
+  const totalPendente  = payments.filter(p => p.repasse_status === 'pendente' && p.avaliado).reduce((s, p) => s + Number(p.valor_bruto), 0)
   const totalRepassado = payments.filter(p => p.repasse_status === 'repassado').reduce((s, p) => s + Number(p.valor_bruto), 0)
 
   // Agrupar por mentor
@@ -317,7 +317,7 @@ function RepassesTab({ payments, loading, repassando, onRepasse }) {
       ) : (
         <div className="space-y-4">
           {Object.entries(byMentor).map(([mentorId, { mentor, payments: mps }]) => {
-            const pendentes  = mps.filter(p => p.repasse_status === 'pendente')
+            const pendentes  = mps.filter(p => p.repasse_status === 'pendente' && p.avaliado)
             const repassados = mps.filter(p => p.repasse_status === 'repassado')
             const totalMentor = pendentes.reduce((s, p) => s + Number(p.valor_bruto), 0)
 
@@ -374,6 +374,10 @@ function RepassesTab({ payments, loading, repassando, onRepasse }) {
                           <p className="font-semibold text-[#1E293B] text-sm">R$ {fmtBRL(p.valor_bruto)}</p>
                           {isRepassado ? (
                             <span className="text-xs text-green-600">✓ Repassado</span>
+                          ) : !p.avaliado ? (
+                            <span className="text-xs text-amber-600" title="O mentor ainda não avaliou este aluno">
+                              ⏳ Aguardando avaliação do mentor
+                            </span>
                           ) : (
                             <button
                               onClick={() => onRepasse([p.id])}
@@ -457,7 +461,17 @@ export default function AdminHome() {
       .select('*, aluno:profiles!aluno_id(nome), mentor:profiles!mentor_id(nome, cidade), offerings(titulo, inicio)')
       .eq('status', 'pago')
       .order('created_at', { ascending: false })
-    setPayments(data ?? [])
+    if (data && data.length > 0) {
+      const { data: reviews } = await supabase
+        .from('avaliacoes')
+        .select('booking_id')
+        .eq('direcao', 'mentor_para_aluno')
+        .in('booking_id', data.map(p => p.booking_id))
+      const avaliados = new Set((reviews ?? []).map(r => r.booking_id))
+      setPayments(data.map(p => ({ ...p, avaliado: avaliados.has(p.booking_id) })))
+    } else {
+      setPayments(data ?? [])
+    }
     setLoadingPayments(false)
   }
 

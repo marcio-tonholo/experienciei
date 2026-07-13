@@ -1226,13 +1226,27 @@ export default function StudentHome() {
                               Ver detalhes →
                             </button>
                           </div>
-                          {existingBooking ? (
+                          {existingBooking?.status === 'confirmado' &&
+                          paymentsByBooking[existingBooking.id]?.status !==
+                            'pago' ? (
+                            <button
+                              onClick={() => handlePay(existingBooking.id)}
+                              disabled={paying === existingBooking.id}
+                              className="w-full py-2.5 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl text-sm font-semibold hover:opacity-90 disabled:opacity-60 transition-opacity"
+                            >
+                              {paying === existingBooking.id
+                                ? 'Redirecionando...'
+                                : `Pagar R$ ${Number(o.preco).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+                            </button>
+                          ) : existingBooking ? (
                             <div
                               className={`text-center py-2.5 rounded-xl text-sm font-medium ${BOOKING_STATUS[existingBooking.status]?.color ?? 'bg-gray-100 text-gray-600'}`}
                             >
                               ✓{' '}
-                              {BOOKING_STATUS[existingBooking.status]?.label ??
-                                existingBooking.status}
+                              {existingBooking.status === 'confirmado'
+                                ? 'Pago'
+                                : (BOOKING_STATUS[existingBooking.status]
+                                    ?.label ?? existingBooking.status)}
                             </div>
                           ) : profile?.status !== 'ativo' ? (
                             <div className="w-full py-2.5 bg-[#F1F5F9] text-[#94A3B8] rounded-xl text-sm font-semibold text-center">
@@ -1452,25 +1466,39 @@ export default function StudentHome() {
                           )}
                         </div>
                         {b.status === 'concluido' && (
-                          <div className="flex flex-col gap-1.5 flex-shrink-0">
-                            <button
-                              onClick={() => setCertBooking(b)}
-                              className="px-3 py-1.5 border border-[#1E3A8A] text-[#1E3A8A] rounded-lg text-xs font-medium hover:bg-[#EFF6FF] transition-colors"
-                            >
-                              📜 Certificado
-                            </button>
+                          <div className="flex flex-col gap-1.5 flex-shrink-0 items-end">
                             {myReviews[b.id] ? (
-                              <div className="px-3 py-1 text-xs text-[#64748B] text-center">
-                                {'★'.repeat(myReviews[b.id].nota)}
-                                {'☆'.repeat(5 - myReviews[b.id].nota)}
-                              </div>
+                              <>
+                                <button
+                                  onClick={() => setCertBooking(b)}
+                                  className="px-3 py-1.5 border border-[#1E3A8A] text-[#1E3A8A] rounded-lg text-xs font-medium hover:bg-[#EFF6FF] transition-colors"
+                                >
+                                  📜 Certificado
+                                </button>
+                                <div className="px-3 py-1 text-xs text-[#64748B] text-center">
+                                  {'★'.repeat(myReviews[b.id].nota)}
+                                  {'☆'.repeat(5 - myReviews[b.id].nota)}
+                                </div>
+                              </>
                             ) : (
-                              <button
-                                onClick={() => setRateBooking(b)}
-                                className="px-3 py-1.5 border border-[#E2E8F0] text-[#374151] rounded-lg text-xs font-medium hover:bg-[#F8FAFC] transition-colors"
-                              >
-                                ⭐ Avaliar mentor
-                              </button>
+                              <>
+                                <button
+                                  disabled
+                                  title="Avalie a mentoria para liberar seu certificado"
+                                  className="px-3 py-1.5 border border-[#E2E8F0] text-[#94A3B8] rounded-lg text-xs font-medium cursor-not-allowed"
+                                >
+                                  📜 Certificado
+                                </button>
+                                <p className="text-[10px] text-[#94A3B8] text-right max-w-[130px]">
+                                  Avalie para liberar
+                                </p>
+                                <button
+                                  onClick={() => setRateBooking(b)}
+                                  className="px-3 py-1.5 bg-[#1E3A8A] text-white rounded-lg text-xs font-medium hover:bg-[#1e40af] transition-colors"
+                                >
+                                  ⭐ Avaliar mentor
+                                </button>
+                              </>
                             )}
                           </div>
                         )}
