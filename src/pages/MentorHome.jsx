@@ -400,6 +400,10 @@ function CreateOfferingModal({ mentorId, onClose, onCreated }) {
     if (!form.fim) return setError('Informe data/hora de fim.');
     if (new Date(form.inicio) >= new Date(form.fim))
       return setError('O fim deve ser após o início.');
+    if (!form.max_vagas || Number(form.max_vagas) < 1)
+      return setError('Informe o número de vagas.');
+    if (Number(form.max_vagas) > 20)
+      return setError('A mentoria deve ter no máximo 20 alunos.');
     if (form.preco === '' || Number(form.preco) < 0)
       return setError('Informe o valor.');
     if (form.latitude == null || form.longitude == null)
@@ -422,7 +426,12 @@ function CreateOfferingModal({ mentorId, onClose, onCreated }) {
     });
     setSaving(false);
 
-    if (err) return setError(err.message);
+    if (err)
+      return setError(
+        err.message?.includes('max_vagas')
+          ? 'A mentoria deve ter no máximo 20 alunos.'
+          : err.message
+      );
     onCreated();
   }
 
@@ -635,6 +644,8 @@ function EditOfferingModal({ offering, onClose, onSaved }) {
     if (!form.inicio)        return setError('Informe data/hora de início.');
     if (!form.fim)           return setError('Informe data/hora de fim.');
     if (new Date(form.inicio) >= new Date(form.fim)) return setError('O fim deve ser após o início.');
+    if (!form.max_vagas || Number(form.max_vagas) < 1) return setError('Informe o número de vagas.');
+    if (Number(form.max_vagas) > 20) return setError('A mentoria deve ter no máximo 20 alunos.');
     if (form.preco === '' || Number(form.preco) < 0) return setError('Informe o valor.');
     if (form.latitude == null || form.longitude == null) return setError('Defina a localização no mapa.');
 
@@ -652,7 +663,12 @@ function EditOfferingModal({ offering, onClose, onSaved }) {
       longitude:    form.longitude,
     }).eq('id', offering.id);
     setSaving(false);
-    if (err) return setError(err.message);
+    if (err)
+      return setError(
+        err.message?.includes('max_vagas')
+          ? 'A mentoria deve ter no máximo 20 alunos.'
+          : err.message
+      );
     onSaved();
   }
 

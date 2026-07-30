@@ -83,6 +83,12 @@ export default function Explorar() {
   const [applying, setApplying] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterSpec, setFilterSpec] = useState('Todos');
+  const [filterComplexidade, setFilterComplexidade] = useState('Todos');
+  const [filterCidade, setFilterCidade] = useState('Todos');
+  const [priceMin, setPriceMin] = useState('');
+  const [priceMax, setPriceMax] = useState('');
+  const [sortBy, setSortBy] = useState('data');
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [topMentores, setTopMentores] = useState([]);
 
   useEffect(() => {
@@ -108,7 +114,7 @@ export default function Explorar() {
           count,
         }))
         .sort((a, b) => b.avg - a.avg || b.count - a.count)
-        .slice(0, 6);
+        .slice(0, 5);
 
       const ids = ranked.map((r) => r.mentorId);
       const [{ data: profilesData }, { data: mentorProfilesData }] =
@@ -202,20 +208,58 @@ export default function Explorar() {
     setApplying(null);
   }
 
+  const cidades = [...new Set(offerings.map((o) => o.cidade).filter(Boolean))].sort(
+    (a, b) => a.localeCompare(b),
+  );
+
+  const activeExtraFilters = [
+    filterComplexidade !== 'Todos',
+    filterCidade !== 'Todos',
+    priceMin !== '',
+    priceMax !== '',
+    sortBy !== 'data',
+  ].filter(Boolean).length;
+
   const filtered = offerings.filter((o) => {
     if (filterSpec !== 'Todos' && o.procedures?.especialidade !== filterSpec)
       return false;
+    if (
+      filterComplexidade !== 'Todos' &&
+      o.procedures?.complexidade !== filterComplexidade
+    )
+      return false;
+    if (filterCidade !== 'Todos' && o.cidade !== filterCidade) return false;
+    if (priceMin !== '' && Number(o.preco) < Number(priceMin)) return false;
+    if (priceMax !== '' && Number(o.preco) > Number(priceMax)) return false;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      return (
-        o.titulo?.toLowerCase().includes(q) ||
-        o.procedures?.nome?.toLowerCase().includes(q) ||
-        o.profiles?.nome?.toLowerCase().includes(q) ||
-        o.procedures?.especialidade?.toLowerCase().includes(q) ||
-        o.cidade?.toLowerCase().includes(q)
-      );
+      if (
+        !o.titulo?.toLowerCase().includes(q) &&
+        !o.procedures?.nome?.toLowerCase().includes(q) &&
+        !o.profiles?.nome?.toLowerCase().includes(q) &&
+        !o.procedures?.especialidade?.toLowerCase().includes(q) &&
+        !o.cidade?.toLowerCase().includes(q)
+      )
+        return false;
     }
     return true;
+  });
+
+  const sorted = [...filtered].sort((a, b) => {
+    if (sortBy === 'preco_asc') return Number(a.preco) - Number(b.preco);
+    if (sortBy === 'preco_desc') return Number(b.preco) - Number(a.preco);
+    if (sortBy === 'proximidade' && userLoc.status === 'granted') {
+      const da =
+        a.latitude != null
+          ? haversineKm(userLoc.lat, userLoc.lng, a.latitude, a.longitude)
+          : Infinity;
+      const db =
+        b.latitude != null
+          ? haversineKm(userLoc.lat, userLoc.lng, b.latitude, b.longitude)
+          : Infinity;
+      return da - db;
+    }
+    return new Date(a.inicio) - new Date(b.inicio);
   });
 
   const initials =
@@ -327,6 +371,106 @@ export default function Explorar() {
           </div>
         )}
 
+        {/* Complexity filter chips */}
+        <div className="flex gap-2 overflow-x-auto pb-2 mb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
+          {['Todos', ...Object.keys(COMPLEXITY)].map((c) => (
+            <button
+              key={c}
+              onClick={() => setFilterComplexidade(c)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap flex-shrink-0 border transition-all ${
+                filterComplexidade === c
+                  ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                  : 'bg-white border-[#E2E8F0] text-[#64748B] hover:border-[#0F172A] hover:text-[#0F172A]'
+              }`}
+            >
+              {c === 'Todos' ? 'Todas complexidades' : COMPLEXITY[c].label}
+            </button>
+          ))}
+        </div>
+
+        {/* More filters: cidade, faixa de preço, ordenação */}
+        <div className="mb-6">
+          <button
+            onClick={() => setShowMoreFilters((v) => !v)}
+            className="flex items-center gap-1.5 text-sm font-medium text-[#1E3A8A] mb-3"
+          >
+            <span>⚙️ Mais filtros</span>
+            {activeExtraFilters > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-[#1E3A8A] text-white text-[10px] font-bold leading-none">
+                {activeExtraFilters}
+              </span>
+            )}
+            <span
+              className={`text-xs transition-transform ${showMoreFilters ? 'rotate-180' : ''}`}
+            >
+              ▾
+            </span>
+          </button>
+
+          {showMoreFilters && (
+            <div className="bg-white rounded-2xl border border-[#E2E8F0] p-4 grid sm:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#64748B] mb-1.5">
+                  Cidade
+                </label>
+                <select
+                  value={filterCidade}
+                  onChange={(e) => setFilterCidade(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-[#E2E8F0] text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]/30 focus:border-[#1E3A8A]"
+                >
+                  <option value="Todos">Todas as cidades</option>
+                  {cidades.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#64748B] mb-1.5">
+                  Faixa de preço (R$)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Mín"
+                    value={priceMin}
+                    onChange={(e) => setPriceMin(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-[#E2E8F0] text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]/30 focus:border-[#1E3A8A]"
+                  />
+                  <span className="text-[#94A3B8] flex-shrink-0">–</span>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="Máx"
+                    value={priceMax}
+                    onChange={(e) => setPriceMax(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-[#E2E8F0] text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]/30 focus:border-[#1E3A8A]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#64748B] mb-1.5">
+                  Ordenar por
+                </label>
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-[#E2E8F0] text-sm focus:outline-none focus:ring-2 focus:ring-[#1E3A8A]/30 focus:border-[#1E3A8A]"
+                >
+                  <option value="data">Data (mais próxima)</option>
+                  <option value="preco_asc">Preço (menor primeiro)</option>
+                  <option value="preco_desc">Preço (maior primeiro)</option>
+                  {userLoc.status === 'granted' && (
+                    <option value="proximidade">Proximidade</option>
+                  )}
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+
         {topMentores.length > 0 && (
           <div className="mb-6">
             <h2 className="text-sm font-bold text-[#0F172A] mb-3">
@@ -374,11 +518,16 @@ export default function Explorar() {
 
         {!loading && (
           <p className="text-sm text-[#64748B] mb-5">
-            {filtered.length}{' '}
-            {filtered.length === 1
+            {sorted.length}{' '}
+            {sorted.length === 1
               ? 'mentoria disponível'
               : 'mentorias disponíveis'}
             {filterSpec !== 'Todos' && ` em ${filterSpec}`}
+            {filterComplexidade !== 'Todos' &&
+              ` · ${COMPLEXITY[filterComplexidade].label}`}
+            {filterCidade !== 'Todos' && ` · ${filterCidade}`}
+            {(priceMin !== '' || priceMax !== '') &&
+              ` · R$ ${priceMin || '0'}–${priceMax || '∞'}`}
             {searchQuery && ` para "${searchQuery}"`}
           </p>
         )}
@@ -419,7 +568,7 @@ export default function Explorar() {
           <div className="flex justify-center py-20">
             <div className="w-10 h-10 rounded-full border-4 border-[#1E3A8A] border-t-transparent animate-spin" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : sorted.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-2xl border border-dashed border-[#CBD5E1]">
             <p className="text-4xl mb-3">🔍</p>
             <p className="font-semibold text-[#1E293B] mb-1">
@@ -432,6 +581,11 @@ export default function Explorar() {
               onClick={() => {
                 setSearchQuery('');
                 setFilterSpec('Todos');
+                setFilterComplexidade('Todos');
+                setFilterCidade('Todos');
+                setPriceMin('');
+                setPriceMax('');
+                setSortBy('data');
               }}
               className="px-5 py-2.5 bg-gradient-to-r from-[#1E3A8A] to-[#2563EB] text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-opacity"
             >
@@ -440,7 +594,7 @@ export default function Explorar() {
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filtered.map((o) => {
+            {sorted.map((o) => {
               const cx = COMPLEXITY[o.procedures?.complexidade];
               const existingBooking = bookings.find(
                 (b) => b.offering_id === o.id,

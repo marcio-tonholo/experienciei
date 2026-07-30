@@ -21,7 +21,9 @@ VITE_SUPABASE_URL=https://your-project-id.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-public-key
 ```
 
-The database schema is in `supabase/schema.sql` — run it in the Supabase SQL Editor to set up tables, RLS policies, and triggers.
+The database schema is in `supabase/schema.sql` — run it in the Supabase SQL Editor to set up tables, RLS policies, and triggers. Apply `supabase/admin_policies.sql`, `supabase/payments_schema.sql`, and `supabase/avaliacoes_schema.sql` afterward (each file's header comment states the required order).
+
+A Supabase CLI project is scaffolded (`supabase/config.toml`, linked via `supabase link`) for local development: `supabase start` runs a local Postgres/API/Auth stack, and `supabase db reset` applies migrations and then `supabase/seed.sql`, which seeds a full set of demo `auth.users` plus corresponding profiles (password `senha123` for all seeded accounts). `supabase/.branches`, `supabase/.temp`, and `.env*` are gitignored (`supabase/.gitignore`).
 
 ## Architecture
 
